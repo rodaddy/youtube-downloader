@@ -1,0 +1,166 @@
+---
+# Ansible playbook for deploying YouTube Downloader to Media-Automation LXC
+#
+# Usage:
+#   ansible-playbook -i inventory.yml deploy.yml
+#
+# Inventory file should define:
+#   [media_automation]
+#   your.server.ip ansible_user=root
+
+- name: Deploy YouTube Downloader
+  hosts: media_automation
+  become: yes
+  vars:
+    app_dir: /opt/youtube-downloader
+    app_user: media
+    app_group: media
+    download_dir: /path/to/downloads  # e.g., /mnt/media/youtube
+    plex_url: "http://your-plex-server:32400"
+    plex_library_id: 14  # Your YouTube library ID
+
+  tasks:
+    - name: Install system dependencies
+      apt:
+        name:
+          - python3
+          - python3-pip
+          - python3-venv
+          - yt-dlp
+          - ffmpeg
+        state: present
+        update_cache: yes
+
+    - name: Create media user and group
+      block:
+        - name: Create media group
+          group:
+            name: "{{ app_group }}"
+            gid: 999
+            state: present
+
+        - name: Create media user
+          user:
+            name: "{{ app_user }}"
+            uid: 999
+            group: "{{ app_group }}"
+            home: "{{ app_dir }}"
+            shell: /bin/bash
+            create_home: no
+            system: yes
+            state: present
+
+    - name: Create application directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0755"
+      loop:
+        - "{{ app_dir }}"
+        - "{{ app_dir }}/data"
+        - "{{ app_dir }}/logs"
+        - "{{ download_dir }}"
+
+    - name: Copy application files
+      synchronize:
+        src: "{{ playbook_dir }}/"
+        dest: "{{ app_dir }}/"
+        delete: no
+        rsync_opts:
+          - "--exclude=.git"
+          - "--exclude=.venv"
+          - "--exclude=__pycache__"
+          - "--exclude=*.pyc"
+          - "--exclude=.DS_Store"
+          - "--exclude=.env"
+          - "--exclude=data/"
+          - "--exclude=logs/"
+          - "--exclude=downloads/"
+      delegate_to: localhost
+
+    - name: Set ownership of application files
+      file:
+        path: "{{ app_dir }}"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        recurse: yes
+
+    - name: Install uv (Python package manager)
+      shell: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> /root/.bashrc
+      args:
+        creates: /root/.cargo/bin/uv
+
+    - name: Create Python virtual environment
+      become_user: "{{ app_user }}"
+      shell: |
+        /root/.cargo/bin/uv venv {{ app_dir }}/.venv
+      args:
+        creates: "{{ app_dir }}/.venv"
+
+    - name: Install Python package with dependencies
+      become_user: "{{ app_user }}"
+      shell: |
+        {{ app_dir }}/.venv/bin/pip install -e "{{ app_dir }}[plex]"
+      args:
+        chdir: "{{ app_dir }}"
+
+    - name: Create .env file from template
+      template:
+        src: templates/env.j2
+        dest: "{{ app_dir }}/.env"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0600"
+
+    - name: Create channels.txt if not exists
+      copy:
+        content: |
+          # Add YouTube channel URLs here, one per line
+          # Example: https://www.youtube.com/@channelname
+        dest: "{{ app_dir }}/channels.txt"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0644"
+        force: no
+
+    - name: Install systemd service
+      copy:
+        src: "{{ app_dir }}/youtube-downloader.service"
+        dest: /etc/systemd/system/youtube-downloader.service
+        owner: root
+        group: root
+        mode: "0644"
+        remote_src: yes
+
+    - name: Enable and start service
+      systemd:
+        name: youtube-downloader
+        enabled: yes
+        state: restarted
+        daemon_reload: yes
+
+    - name: Wait for service to start
+      wait_for:
+        host: 127.0.0.1
+        port: 5001
+        delay: 2
+        timeout: 30
+
+    - name: Display service status
+      command: systemctl status youtube-downloader --no-pager
+      register: service_status
+      changed_when: false
+
+    - name: Show deployment summary
+      debug:
+        msg:
+          - "✅ YouTube Downloader deployed successfully!"
+          - "📁 Installation directory: {{ app_dir }}"
+          - "🌐 Web UI: http://{{ ansible_host }}:5001"
+          - "📝 Edit channels: {{ app_dir }}/channels.txt"
+          - "⚙️  Configuration: {{ app_dir }}/.env"
+          - "📊 Logs: journalctl -u youtube-downloader -f"
