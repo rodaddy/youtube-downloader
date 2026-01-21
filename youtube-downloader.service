@@ -1,0 +1,29 @@
+[Unit]
+Description=YouTube Downloader
+After=network.target
+
+[Service]
+Type=simple
+User=media
+Group=media
+WorkingDirectory=/opt/youtube-downloader
+Environment="PATH=/opt/youtube-downloader/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/opt/youtube-downloader/.venv/bin/youtube-downloader serve
+Restart=on-failure
+RestartSec=10s
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/youtube-downloader/data /opt/youtube-downloader/logs /mnt/media
+ReadOnlyPaths=/opt/youtube-downloader
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=youtube-downloader
+
+[Install]
+WantedBy=multi-user.target

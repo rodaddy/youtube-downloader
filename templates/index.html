@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>YouTube Channel Downloader</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { margin-bottom: 30px; color: #fff; }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .header-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        button:hover { background: #1976D2; }
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        button.secondary {
+            background: #4CAF50;
+        }
+        button.secondary:hover {
+            background: #388E3C;
+        }
+        button.danger {
+            background: #f44336;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        button.danger:hover {
+            background: #c62828;
+        }
+        .scheduler-status {
+            background: #2a2a2a;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .scheduler-info {
+            display: flex;
+            gap: 30px;
+            font-size: 14px;
+        }
+        .scheduler-info span {
+            color: #888;
+        }
+        .scheduler-info strong {
+            color: #4CAF50;
+        }
+        .stats-bar {
+            background: #2a2a2a;
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #333;
+            display: flex;
+            gap: 30px;
+            font-size: 13px;
+        }
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .stat-item .value {
+            color: #2196F3;
+            font-weight: 600;
+        }
+        .channels-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .channel-card {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #333;
+        }
+        .channel-name {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #4CAF50;
+        }
+        .section {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #333;
+        }
+        .section h2 {
+            margin-bottom: 15px;
+            font-size: 18px;
+            color: #fff;
+        }
+        .download-item {
+            background: #1f1f1f;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            border-left: 3px solid #2196F3;
+        }
+        .download-item.complete { border-left-color: #4CAF50; }
+        .download-item.error { border-left-color: #f44336; }
+        .download-url {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 5px;
+        }
+        .download-status {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-queued { background: #FF9800; }
+        .status-downloading { background: #2196F3; }
+        .status-complete { background: #4CAF50; }
+        .status-error { background: #f44336; }
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #333;
+            border-radius: 2px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #2196F3;
+            transition: width 0.3s;
+        }
+        .file-list {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .channel-group {
+            margin-bottom: 20px;
+        }
+        .channel-group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .channel-group h3 {
+            color: #4CAF50;
+            font-size: 16px;
+        }
+        .video-count {
+            color: #888;
+            font-size: 12px;
+        }
+        .video-item {
+            background: #1f1f1f;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        .video-info {
+            flex: 1;
+        }
+        .video-title {
+            color: #e0e0e0;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+        .video-meta {
+            color: #888;
+            font-size: 11px;
+            display: flex;
+            gap: 15px;
+        }
+        .video-missing {
+            color: #f44336;
+            font-size: 11px;
+            margin-top: 4px;
+        }
+        .video-actions {
+            margin-left: 15px;
+        }
+        .empty-state {
+            text-align: center;
+            color: #666;
+            padding: 40px;
+        }
+        /* Settings Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.active {
+            display: flex;
+        }
+        .modal {
+            background: #2a2a2a;
+            padding: 30px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            border: 1px solid #444;
+        }
+        .modal h2 {
+            margin-bottom: 20px;
+            color: #fff;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #888;
+            font-size: 13px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #444;
+            border-radius: 6px;
+            background: #1f1f1f;
+            color: #e0e0e0;
+            font-size: 14px;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #2196F3;
+        }
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 25px;
+        }
+        button.outline {
+            background: transparent;
+            border: 1px solid #555;
+            color: #e0e0e0;
+        }
+        button.outline:hover {
+            background: #333;
+        }
+        button.icon-btn {
+            background: #333;
+            padding: 10px 14px;
+        }
+        button.icon-btn:hover {
+            background: #444;
+        }
+        /* Pinned video styling */
+        .video-item[data-pinned="true"] {
+            border-left: 3px solid #4CAF50;
+            background: linear-gradient(to right, rgba(76, 175, 80, 0.1), transparent);
+        }
+        .video-item[data-pinned="true"] .video-title {
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>YouTube Channel Downloader</h1>
+            <div class="header-buttons">
+                <button onclick="openLogs()" class="icon-btn" title="View application logs">📋</button>
+                <button onclick="openSettings()" class="icon-btn" title="Settings">⚙️</button>
+                <button onclick="syncLibrary()" id="syncBtn" class="icon-btn" title="Sync library: cleanup old files and scan for new videos">🔄</button>
+                <button onclick="scanExisting()" id="scanBtn" class="icon-btn" title="Scan for existing videos">🔍</button>
+                <button onclick="runNow()" id="runNowBtn" class="secondary">Run Now</button>
+                <button onclick="downloadAll()" id="downloadAllBtn">Download All Channels</button>
+            </div>
+        </div>
+
+        <div class="scheduler-status" id="schedulerStatus">
+            <div class="scheduler-info">
+                <div><span>Status:</span> <strong id="schedulerRunning">Loading...</strong></div>
+                <div><span>Last Run:</span> <strong id="lastRun">-</strong></div>
+                <div><span>Next Run:</span> <strong id="nextRun">-</strong></div>
+                <div><span>Interval:</span> <strong id="interval">-</strong></div>
+            </div>
+        </div>
+
+        <div class="stats-bar" id="statsBar">
+            <div class="stat-item">
+                <span>Total Videos:</span>
+                <span class="value" id="totalVideos">0</span>
+            </div>
+            <div class="stat-item">
+                <span>Total Size:</span>
+                <span class="value" id="totalSize">0 MB</span>
+            </div>
+            <div class="stat-item">
+                <span>Channels:</span>
+                <span class="value" id="channelCount">0</span>
+            </div>
+            <div class="stat-item">
+                <span>Videos/Channel:</span>
+                <span class="value" id="videosPerChannel">-</span>
+            </div>
+            <div class="stat-item" style="flex: 1; justify-content: flex-end;">
+                <span>Download Dir:</span>
+                <span class="value" id="downloadDirDisplay" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="">-</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Direct Download</h2>
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <input type="text" id="directDownloadInput" placeholder="Enter YouTube channel URL (e.g., https://youtube.com/@channelname)" style="flex: 1; padding: 12px; border: 1px solid #444; border-radius: 6px; background: #1f1f1f; color: #e0e0e0; font-size: 14px;">
+                <button onclick="downloadDirect()" id="directDownloadBtn">Download</button>
+            </div>
+            <div style="font-size: 12px; color: #888;">Download videos from any YouTube channel without adding it to your channels list.</div>
+        </div>
+
+        <div class="section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 style="margin: 0;">Channels</h2>
+                <button onclick="openAddChannel()" class="secondary" style="padding: 8px 16px; font-size: 13px;">➕ Add Channel</button>
+            </div>
+            <div class="channels-grid" id="channelsGrid"></div>
+        </div>
+
+        <div class="section">
+            <h2>Active Downloads</h2>
+            <div id="queueStatus" style="margin-bottom: 15px; padding: 10px; background: #1f2a1f; border-radius: 8px; font-size: 14px;"></div>
+            <div id="activeDownloads"></div>
+        </div>
+
+        <div class="section">
+            <h2>Downloaded Videos</h2>
+            <div class="file-list" id="videoList"></div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settingsModal" onclick="closeSettingsOnOverlay(event)">
+        <div class="modal">
+            <h2>⚙️ Settings</h2>
+            <form id="settingsForm" onsubmit="saveSettings(event)">
+                <div class="form-group">
+                    <label for="downloadDir">Download Location</label>
+                    <input type="text" id="downloadDir" name="download_dir" placeholder="/path/to/downloads">
+                </div>
+                <div class="form-group">
+                    <label for="videosPerChannel">Videos Per Channel</label>
+                    <input type="number" id="videosPerChannelInput" name="videos_per_channel" min="1" max="50" placeholder="2">
+                </div>
+                <div class="modal-buttons">
+                    <button type="button" class="outline" onclick="closeSettings()">Cancel</button>
+                    <button type="submit">Save Settings</button>
+                </div>
+            </form>
+
+            <hr style="margin: 30px 0; border: none; border-top: 1px solid #444;">
+
+            <div style="background: #1f2a1f; padding: 20px; border-radius: 8px; border: 1px solid #2a4a2a; margin-bottom: 20px;">
+                <h3 style="color: #4CAF50; margin-bottom: 10px; font-size: 16px;">🔄 Server Control</h3>
+                <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">
+                    Restart the application server. In debug mode, code changes auto-reload. Use this for config changes or manual restart.
+                </p>
+                <button type="button" class="secondary" onclick="restartServer()" style="padding: 10px 20px;">
+                    🔄 Restart Server
+                </button>
+            </div>
+
+            <div style="background: #2a1515; padding: 20px; border-radius: 8px; border: 1px solid #4a1515;">
+                <h3 style="color: #f44336; margin-bottom: 10px; font-size: 16px;">⚠️ Danger Zone</h3>
+                <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">
+                    Nuclear option: Delete ALL downloaded videos, database entries, and download archive. This cannot be undone.
+                </p>
+                <button type="button" class="danger" onclick="confirmNuke()" style="padding: 10px 20px;">
+                    🗑️ Delete Everything
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Channel Modal -->
+    <div class="modal-overlay" id="addChannelModal" onclick="closeAddChannelOnOverlay(event)">
+        <div class="modal">
+            <h2>➕ Add Channel</h2>
+            <form id="addChannelForm" onsubmit="addChannel(event)">
+                <div class="form-group">
+                    <label for="newChannelUrl">YouTube Channel URL</label>
+                    <input type="text" id="newChannelUrl" placeholder="https://youtube.com/@channelname" required>
+                    <div style="font-size: 11px; color: #888; margin-top: 5px;">
+                        Example: https://youtube.com/@LinusTechTips
+                    </div>
+                </div>
+                <div class="modal-buttons">
+                    <button type="button" class="outline" onclick="closeAddChannel()">Cancel</button>
+                    <button type="submit">Add Channel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Channel Settings Modal -->
+    <div class="modal-overlay" id="channelSettingsModal" onclick="closeChannelSettingsOnOverlay(event)">
+        <div class="modal">
+            <h2>⚙️ Channel Settings</h2>
+            <p id="channelSettingsName" style="color: #888; font-size: 14px; margin-bottom: 20px;"></p>
+
+            <form id="channelSettingsForm" onsubmit="saveChannelSettings(event)">
+                <div class="form-group">
+                    <label for="channelVideoLimit">Videos to Keep</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="number" id="channelVideoLimit" min="1" max="100" placeholder="3" style="flex: 1;">
+                        <button type="button" class="secondary" onclick="useDefaultLimit()" title="Use global default" style="white-space: nowrap;">
+                            Use Default
+                        </button>
+                    </div>
+                    <div style="font-size: 11px; color: #888; margin-top: 5px;">
+                        Leave empty or click "Use Default" to use the global setting (currently 3 videos per channel).
+                        Set a custom number to override for this channel only.
+                    </div>
+                </div>
+
+                <div style="background: #2a2a2a; padding: 15px; border-radius: 6px; margin-top: 20px;">
+                    <div style="font-size: 12px; color: #888; margin-bottom: 5px;">Current Status:</div>
+                    <div id="channelLimitStatus" style="font-size: 13px; color: #aaa;"></div>
+                </div>
+
+                <div class="modal-buttons" style="margin-top: 20px;">
+                    <button type="button" class="outline" onclick="closeChannelSettings()">Cancel</button>
+                    <button type="submit">Save Settings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Logs Modal -->
+    <div class="modal-overlay" id="logsModal" onclick="closeLogsOnOverlay(event)">
+        <div class="modal" style="max-width: 90%; width: 1200px;">
+            <h2>📋 Application Logs</h2>
+
+            <div style="display: flex; gap: 10px; margin-bottom: 15px; align-items: center;">
+                <select id="logLevelFilter" onchange="loadLogs()" style="padding: 8px; background: #1f1f1f; color: #e0e0e0; border: 1px solid #444; border-radius: 6px;">
+                    <option value="">All Levels</option>
+                    <option value="ERROR">ERROR</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="INFO">INFO</option>
+                    <option value="DEBUG">DEBUG</option>
+                </select>
+                <input type="text" id="logSearch" placeholder="Search logs..." onkeyup="loadLogs()" style="flex: 1; padding: 8px; background: #1f1f1f; color: #e0e0e0; border: 1px solid #444; border-radius: 6px;">
+                <button onclick="downloadLogFile()" class="icon-btn" title="Download full log file">💾</button>
+                <button onclick="loadLogs()" class="icon-btn" title="Refresh logs">🔄</button>
+            </div>
+
+            <div id="logStats" style="font-size: 12px; color: #888; margin-bottom: 10px;"></div>
+
+            <div id="logViewer" style="background: #1a1a1a; padding: 15px; border-radius: 6px; font-family: 'Monaco', 'Courier New', monospace; font-size: 12px; height: 600px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></div>
+
+            <div class="modal-buttons" style="margin-top: 20px;">
+                <button type="button" class="outline" onclick="closeLogs()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let channels = [];
+        let downloads = {};
+        let currentChannelUrl = null;
+
+        // Load channels on page load
+        async function loadChannels() {
+            const response = await fetch('/api/channels');
+            const data = await response.json();
+            channels = data.channels;
+            renderChannels();
+        }
+
+        function renderChannels() {
+            const grid = document.getElementById('channelsGrid');
+            if (channels.length === 0) {
+                grid.innerHTML = '<div class="empty-state">No channels configured. Add a channel to get started.</div>';
+                return;
+            }
+            grid.innerHTML = channels.map(url => {
+                const name = url.split('@')[1] || url.split('/').pop();
+                return `
+                    <div class="channel-card">
+                        <div class="channel-name">${name}</div>
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="downloadChannel('${escapeHtml(url)}')" style="flex: 1;">
+                                Download Latest
+                            </button>
+                            <button class="icon-btn" onclick="openChannelSettings('${escapeHtml(url)}')" title="Channel settings">
+                                ⚙️
+                            </button>
+                            <button class="danger" onclick="removeChannel('${escapeHtml(url)}')" title="Remove channel">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function downloadChannel(channelUrl) {
+            const response = await fetch('/api/download/channel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel_url: channelUrl })
+            });
+            const data = await response.json();
+            if (data.download_id) {
+                pollStatus();
+            }
+        }
+
+        async function downloadAll() {
+            const btn = document.getElementById('downloadAllBtn');
+            btn.disabled = true;
+            btn.textContent = 'Downloading...';
+
+            const response = await fetch('/api/download/all', {
+                method: 'POST'
+            });
+            const data = await response.json();
+            if (data.download_ids) {
+                pollStatus();
+            }
+
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = 'Download All Channels';
+            }, 2000);
+        }
+
+        async function runNow() {
+            const btn = document.getElementById('runNowBtn');
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+
+            await fetch('/api/scheduler/run-now', { method: 'POST' });
+
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = 'Run Now';
+                pollStatus();
+            }, 1000);
+        }
+
+        async function pollStatus() {
+            const [statusRes, queueRes] = await Promise.all([
+                fetch('/api/status'),
+                fetch('/api/queue')
+            ]);
+            const statusData = await statusRes.json();
+            const queueData = await queueRes.json();
+
+            downloads = statusData.downloads;
+            renderDownloads();
+            renderQueueStatus(queueData);
+        }
+
+        function renderQueueStatus(queueData) {
+            const container = document.getElementById('queueStatus');
+            const { queue_size, active_downloads } = queueData;
+
+            if (queue_size === 0 && active_downloads === 0) {
+                container.style.display = 'none';
+                return;
+            }
+
+            container.style.display = 'block';
+            const queueText = queue_size === 1 ? '1 download queued' : `${queue_size} downloads queued`;
+            const activeText = active_downloads === 1 ? '1 downloading' : `${active_downloads} downloading`;
+
+            container.innerHTML = `
+                <strong>📥 Queue Status:</strong>
+                ${active_downloads > 0 ? `<span style="color: #4CAF50;">${activeText}</span>` : ''}
+                ${queue_size > 0 ? `<span style="color: #FF9800;">${queueText}</span>` : ''}
+                ${queue_size > 0 ? `<span style="color: #888; margin-left: 10px;">(10s delay between downloads)</span>` : ''}
+            `;
+        }
+
+        function renderDownloads() {
+            const container = document.getElementById('activeDownloads');
+            const downloadList = Object.entries(downloads);
+
+            if (downloadList.length === 0) {
+                container.innerHTML = '<div class="empty-state">No active downloads</div>';
+                return;
+            }
+
+            container.innerHTML = downloadList.map(([id, dl]) => {
+                const channelName = dl.channel_url.split('@')[1] || dl.channel_url;
+                const statusClass = `status-${dl.status}`;
+
+                return `
+                    <div class="download-item ${dl.status}">
+                        <div class="download-url">${channelName}</div>
+                        <div class="download-status">
+                            <span class="status-badge ${statusClass}">${dl.status}</span>
+                            <span>${dl.progress.toFixed(0)}%</span>
+                        </div>
+                        ${dl.status === 'downloading' ? `
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${dl.progress}%"></div>
+                            </div>
+                        ` : ''}
+                        ${dl.message ? `<div style="margin-top: 5px; font-size: 12px; color: #888;">${dl.message}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function loadSchedulerStatus() {
+            const response = await fetch('/api/stats');
+            const data = await response.json();
+
+            // Scheduler status
+            const scheduler = data.scheduler;
+            document.getElementById('schedulerRunning').textContent = scheduler.is_running ? 'Running' : 'Stopped';
+            document.getElementById('schedulerRunning').style.color = scheduler.is_running ? '#4CAF50' : '#f44336';
+            document.getElementById('lastRun').textContent = scheduler.last_run ? formatDateTime(scheduler.last_run) : 'Never';
+            document.getElementById('nextRun').textContent = scheduler.next_run ? formatDateTime(scheduler.next_run) : '-';
+            document.getElementById('interval').textContent = scheduler.interval_hours ? `${scheduler.interval_hours}h` : '-';
+
+            // Database stats
+            const db = data.database;
+            document.getElementById('totalVideos').textContent = db.total_videos;
+            document.getElementById('totalSize').textContent = `${db.total_size_mb} MB`;
+            document.getElementById('channelCount').textContent = db.channel_count;
+
+            // Settings
+            document.getElementById('videosPerChannel').textContent = data.settings.videos_per_channel;
+
+            // Download directory
+            const downloadDir = data.settings.download_dir;
+            const downloadDirEl = document.getElementById('downloadDirDisplay');
+            downloadDirEl.textContent = downloadDir;
+            downloadDirEl.title = downloadDir;
+        }
+
+        async function loadVideos() {
+            const response = await fetch('/api/videos');
+            const data = await response.json();
+            renderVideos(data.videos);
+        }
+
+        function renderVideos(videosByChannel) {
+            const container = document.getElementById('videoList');
+            const channelEntries = Object.entries(videosByChannel);
+
+            if (channelEntries.length === 0) {
+                container.innerHTML = '<div class="empty-state">No downloaded videos yet</div>';
+                return;
+            }
+
+            container.innerHTML = channelEntries.map(([channelName, videos]) => `
+                <div class="channel-group">
+                    <div class="channel-group-header">
+                        <h3>${channelName}</h3>
+                        <span class="video-count">${videos.length} video${videos.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    ${videos.map(video => `
+                        <div class="video-item" data-pinned="${video.keep_forever || false}">
+                            <div class="video-info">
+                                <div class="video-title">${video.keep_forever ? '📌 ' : ''}${video.title}</div>
+                                <div class="video-meta">
+                                    <span>Uploaded: ${formatUploadDate(video.upload_date)}</span>
+                                    <span>Size: ${formatSize(video.file_size)}</span>
+                                    <span>Downloaded: ${formatDateTime(video.downloaded_at)}</span>
+                                </div>
+                                ${!video.file_exists ? '<div class="video-missing">File missing from disk</div>' : ''}
+                            </div>
+                            <div class="video-actions" style="display: flex; gap: 8px;">
+                                <button class="secondary" onclick="togglePin('${video.video_id}', ${!video.keep_forever})" title="${video.keep_forever ? 'Unpin video' : 'Pin video (prevent cleanup)'}">
+                                    ${video.keep_forever ? '📌 Unpin' : '📍 Pin'}
+                                </button>
+                                <button class="danger" onclick="deleteVideo('${video.video_id}', '${escapeHtml(video.title)}')" ${video.keep_forever ? 'disabled title="Unpin first to delete"' : ''}>
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `).join('');
+        }
+
+        async function deleteVideo(videoId, title) {
+            if (!confirm(`Delete "${title}"? This will remove the file from disk.`)) {
+                return;
+            }
+
+            const response = await fetch(`/api/videos/${videoId}`, {
+                method: 'DELETE'
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                alert(data.message);
+                loadVideos();
+                loadSchedulerStatus();
+            } else if (response.status === 403 && data.pinned) {
+                // Video is pinned
+                alert(data.error + '\n\nUnpin the video first if you want to delete it.');
+            } else {
+                alert('Error: ' + (data.error || 'Failed to delete video'));
+            }
+        }
+
+        function formatSize(bytes) {
+            if (!bytes) return '0 MB';
+            const mb = bytes / (1024 * 1024);
+            if (mb >= 1024) {
+                return (mb / 1024).toFixed(2) + ' GB';
+            }
+            return mb.toFixed(1) + ' MB';
+        }
+
+        function formatDateTime(isoString) {
+            if (!isoString) return '-';
+            const date = new Date(isoString);
+            return date.toLocaleString();
+        }
+
+        function formatUploadDate(dateStr) {
+            if (!dateStr || dateStr.length !== 8) return dateStr || '-';
+            const year = dateStr.substring(0, 4);
+            const month = dateStr.substring(4, 6);
+            const day = dateStr.substring(6, 8);
+            return `${year}-${month}-${day}`;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML.replace(/'/g, "\\'");
+        }
+
+        // Settings Modal Functions
+        async function openSettings() {
+            const response = await fetch('/api/settings');
+            const data = await response.json();
+
+            document.getElementById('downloadDir').value = data.download_dir || '';
+            document.getElementById('videosPerChannelInput').value = data.videos_per_channel || 2;
+
+            document.getElementById('settingsModal').classList.add('active');
+        }
+
+        function closeSettings() {
+            document.getElementById('settingsModal').classList.remove('active');
+        }
+
+        function closeSettingsOnOverlay(event) {
+            if (event.target.id === 'settingsModal') {
+                closeSettings();
+            }
+        }
+
+        async function saveSettings(event) {
+            event.preventDefault();
+
+            const downloadDir = document.getElementById('downloadDir').value;
+            const videosPerChannel = parseInt(document.getElementById('videosPerChannelInput').value);
+
+            const response = await fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    download_dir: downloadDir,
+                    videos_per_channel: videosPerChannel
+                })
+            });
+
+            if (response.ok) {
+                closeSettings();
+                loadSchedulerStatus();
+                alert('Settings saved successfully!');
+            } else {
+                const data = await response.json();
+                alert(data.error || 'Failed to save settings');
+            }
+        }
+
+        async function scanExisting() {
+            const btn = document.getElementById('scanBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳';
+
+            const response = await fetch('/api/scan', { method: 'POST' });
+            const data = await response.json();
+
+            btn.disabled = false;
+            btn.textContent = '🔍';
+
+            if (response.ok) {
+                loadVideos();
+                loadSchedulerStatus();
+                alert(data.message || 'Scan complete');
+            } else {
+                alert(data.error || 'Scan failed');
+            }
+        }
+
+        async function syncLibrary() {
+            const btn = document.getElementById('syncBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳';
+
+            const response = await fetch('/api/sync', { method: 'POST' });
+            const data = await response.json();
+
+            btn.disabled = false;
+            btn.textContent = '🔄';
+
+            if (response.ok) {
+                loadVideos();
+                loadSchedulerStatus();
+                alert(data.message || 'Sync complete');
+            } else {
+                alert(data.error || 'Sync failed');
+            }
+        }
+
+        // Direct Download
+        async function downloadDirect() {
+            const input = document.getElementById('directDownloadInput');
+            const btn = document.getElementById('directDownloadBtn');
+            const url = input.value.trim();
+
+            if (!url) {
+                alert('Please enter a channel URL');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Downloading...';
+
+            const response = await fetch('/api/download/channel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel_url: url })
+            });
+            const data = await response.json();
+
+            btn.disabled = false;
+            btn.textContent = 'Download';
+
+            if (data.download_id) {
+                input.value = '';
+                pollStatus();
+                alert('Download started!');
+            } else {
+                alert(data.error || 'Download failed');
+            }
+        }
+
+        // Add Channel Modal Functions
+        function openAddChannel() {
+            document.getElementById('addChannelModal').classList.add('active');
+            document.getElementById('newChannelUrl').value = '';
+        }
+
+        function closeAddChannel() {
+            document.getElementById('addChannelModal').classList.remove('active');
+        }
+
+        function closeAddChannelOnOverlay(event) {
+            if (event.target.id === 'addChannelModal') {
+                closeAddChannel();
+            }
+        }
+
+        async function addChannel(event) {
+            event.preventDefault();
+
+            const url = document.getElementById('newChannelUrl').value.trim();
+
+            const response = await fetch('/api/channels', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel_url: url })
+            });
+            const data = await response.json();
+
+            if (response.ok) {
+                closeAddChannel();
+                loadChannels();
+                alert(data.message || 'Channel added successfully');
+            } else {
+                alert(data.error || 'Failed to add channel');
+            }
+        }
+
+        async function removeChannel(channelUrl) {
+            const channelName = channelUrl.split('@')[1] || channelUrl.split('/').pop();
+
+            if (!confirm(`Remove channel "${channelName}"? This won't delete downloaded videos.`)) {
+                return;
+            }
+
+            const response = await fetch('/api/channels', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel_url: channelUrl })
+            });
+
+            if (response.ok) {
+                loadChannels();
+                alert('Channel removed successfully');
+            } else {
+                const data = await response.json();
+                alert(data.error || 'Failed to remove channel');
+            }
+        }
+
+        // Server Restart
+        async function restartServer() {
+            if (!confirm('Restart the server? Active downloads may be interrupted.\n\nNote: In debug mode (default), code changes already auto-reload - you only need this for config changes.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/restart', {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert(data.message + '\n\nThe page will reload automatically in 3 seconds.');
+                    closeSettings();
+
+                    // Reload page after server restarts
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3000);
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to restart server') + '\n\n' + (data.note || ''));
+                }
+            } catch (error) {
+                console.error('Restart error:', error);
+                alert('Failed to restart server: ' + error);
+            }
+        }
+
+        // Nuclear Option
+        async function confirmNuke() {
+            // First confirmation
+            const confirm1 = confirm(
+                '⚠️ WARNING: This will DELETE EVERYTHING\n\n' +
+                '• All downloaded videos\n' +
+                '• All database entries\n' +
+                '• Download archive\n\n' +
+                'This action CANNOT be undone.\n\n' +
+                'Are you absolutely sure?'
+            );
+
+            if (!confirm1) return;
+
+            // Second confirmation with typing requirement
+            const typed = prompt(
+                '⚠️ FINAL WARNING\n\n' +
+                'Type exactly: DELETE EVERYTHING\n\n' +
+                '(This will permanently delete all videos and data)'
+            );
+
+            if (typed !== 'DELETE EVERYTHING') {
+                if (typed !== null) {
+                    alert('Cancellation confirmed. Nothing was deleted.');
+                }
+                return;
+            }
+
+            // Execute nuke
+            const response = await fetch('/api/nuke', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirmation: 'DELETE EVERYTHING' })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                alert(
+                    '💥 Nuclear cleanup complete:\n\n' +
+                    `${data.deleted_files} files deleted\n` +
+                    `${data.deleted_dirs} directories removed\n` +
+                    (data.errors.length > 0 ? `\n${data.errors.length} errors encountered` : '')
+                );
+                loadVideos();
+                loadSchedulerStatus();
+                closeSettings();
+            } else {
+                alert('Error: ' + (data.error || 'Nuke operation failed'));
+            }
+        }
+
+        // Pin/Keeper Feature Functions
+        async function togglePin(videoId, keepForever) {
+            const action = keepForever ? 'pin' : 'unpin';
+            const confirmMsg = keepForever
+                ? 'Pin this video? It will be kept forever and added to Plex Keepers collection.'
+                : 'Unpin this video? It may be deleted during cleanup.';
+
+            if (!confirm(confirmMsg)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/videos/${videoId}/pin`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keep_forever: keepForever })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert(data.message);
+                    loadVideos(); // Refresh video list
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to ' + action + ' video'));
+                }
+            } catch (error) {
+                console.error('Pin toggle error:', error);
+                alert('Failed to ' + action + ' video');
+            }
+        }
+
+        // Channel Settings Functions
+        async function openChannelSettings(channelUrl) {
+            currentChannelUrl = channelUrl;
+
+            // Extract channel name from URL
+            const channelName = channelUrl.split('@')[1] || channelUrl.split('/').pop();
+            document.getElementById('channelSettingsName').textContent = `Channel: ${channelName}`;
+
+            // Fetch current settings
+            try {
+                const encodedUrl = encodeURIComponent(channelUrl);
+                const response = await fetch(`/api/channels/${encodedUrl}/settings`);
+                const data = await response.json();
+
+                // Populate form
+                const limitInput = document.getElementById('channelVideoLimit');
+                if (data.using_default) {
+                    limitInput.value = '';
+                    limitInput.placeholder = data.default_limit;
+                } else {
+                    limitInput.value = data.video_limit;
+                    limitInput.placeholder = data.default_limit;
+                }
+
+                // Update status display
+                updateChannelLimitStatus(data);
+
+                // Show modal
+                document.getElementById('channelSettingsModal').classList.add('active');
+
+            } catch (error) {
+                console.error('Error loading channel settings:', error);
+                alert('Failed to load channel settings');
+            }
+        }
+
+        function closeChannelSettings() {
+            document.getElementById('channelSettingsModal').classList.remove('active');
+            currentChannelUrl = null;
+        }
+
+        function closeChannelSettingsOnOverlay(event) {
+            if (event.target.id === 'channelSettingsModal') {
+                closeChannelSettings();
+            }
+        }
+
+        function useDefaultLimit() {
+            const limitInput = document.getElementById('channelVideoLimit');
+            limitInput.value = '';
+        }
+
+        function updateChannelLimitStatus(data) {
+            const statusDiv = document.getElementById('channelLimitStatus');
+
+            if (data.using_default) {
+                statusDiv.innerHTML = `
+                    Using global default: <strong style="color: #4CAF50;">${data.default_limit} videos</strong>
+                `;
+            } else {
+                statusDiv.innerHTML = `
+                    Custom limit: <strong style="color: #2196F3;">${data.video_limit} videos</strong>
+                    <span style="color: #888;">(global default: ${data.default_limit})</span>
+                `;
+            }
+        }
+
+        async function saveChannelSettings(event) {
+            event.preventDefault();
+
+            if (!currentChannelUrl) {
+                return;
+            }
+
+            const limitInput = document.getElementById('channelVideoLimit');
+            const limitValue = limitInput.value.trim();
+
+            // Prepare request body
+            const requestBody = {
+                video_limit: limitValue === '' ? null : parseInt(limitValue, 10)
+            };
+
+            try {
+                const encodedUrl = encodeURIComponent(currentChannelUrl);
+                const response = await fetch(`/api/channels/${encodedUrl}/settings`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert(data.message);
+                    closeChannelSettings();
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to save settings'));
+                }
+            } catch (error) {
+                console.error('Save error:', error);
+                alert('Failed to save channel settings');
+            }
+        }
+
+        // Log Viewer Functions
+        function openLogs() {
+            document.getElementById('logsModal').classList.add('active');
+            loadLogs(); // Load logs when opening modal
+        }
+
+        function closeLogs() {
+            document.getElementById('logsModal').classList.remove('active');
+        }
+
+        function closeLogsOnOverlay(event) {
+            if (event.target.id === 'logsModal') {
+                closeLogs();
+            }
+        }
+
+        async function loadLogs() {
+            try {
+                const level = document.getElementById('logLevelFilter').value;
+                const search = document.getElementById('logSearch').value;
+
+                const params = new URLSearchParams({
+                    lines: '200',
+                });
+                if (level) params.append('level', level);
+                if (search) params.append('search', search);
+
+                const response = await fetch(`/api/logs?${params}`);
+                const data = await response.json();
+
+                const logViewer = document.getElementById('logViewer');
+                const logStats = document.getElementById('logStats');
+
+                if (data.lines && data.lines.length > 0) {
+                    // Colorize log levels
+                    const colorizedLines = data.lines.map(line => {
+                        if (line.includes('| ERROR ')) {
+                            return `<span style="color: #f44336;">${line}</span>`;
+                        } else if (line.includes('| WARNING ')) {
+                            return `<span style="color: #FF9800;">${line}</span>`;
+                        } else if (line.includes('| INFO ')) {
+                            return `<span style="color: #4CAF50;">${line}</span>`;
+                        } else if (line.includes('| DEBUG ')) {
+                            return `<span style="color: #888;">${line}</span>`;
+                        }
+                        return line;
+                    });
+
+                    logViewer.innerHTML = colorizedLines.join('\n');
+
+                    // Update stats
+                    logStats.textContent = `Showing ${data.filtered_lines} of ${data.total_lines} total log lines`;
+
+                    // Auto-scroll to bottom
+                    logViewer.scrollTop = logViewer.scrollHeight;
+                } else {
+                    logViewer.textContent = 'No log entries found';
+                    logStats.textContent = '';
+                }
+
+            } catch (error) {
+                console.error('Error loading logs:', error);
+                document.getElementById('logViewer').textContent = 'Failed to load logs: ' + error;
+            }
+        }
+
+        async function downloadLogFile() {
+            window.location.href = '/api/logs/download';
+        }
+
+        // Initialize
+        loadChannels();
+        loadVideos();
+        loadSchedulerStatus();
+
+        // Poll for updates
+        setInterval(() => {
+            if (Object.keys(downloads).length > 0) {
+                pollStatus();
+            }
+            loadVideos();
+            loadSchedulerStatus();
+
+            // Only refresh logs if modal is open
+            if (document.getElementById('logsModal').classList.contains('active')) {
+                loadLogs();
+            }
+        }, 5000);
+
+        // Poll downloads more frequently when active
+        setInterval(() => {
+            if (Object.keys(downloads).some(id => downloads[id].status === 'downloading')) {
+                pollStatus();
+            }
+        }, 1000);
+    </script>
+</body>
+</html>
