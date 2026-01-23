@@ -21,8 +21,9 @@ This document summarizes all proposed enhancements with priorities, effort estim
 | 4 | [Per-Channel Settings](#4-per-channel-settings) | Medium | Low | 6-8h | High | Proposed |
 | 5 | [Bulk Operations](#5-bulk-operations) | Low | Low | 6-8h | Medium | Proposed |
 | 6 | [Webhook System](#6-webhook-system) | Medium | Medium | 8-10h | High | Proposed |
+| 7 | [Auto-Cleanup](#7-auto-cleanup) | High | Low | 8-11h | High | Proposed |
 
-**Total Estimated Effort:** 30-42 hours
+**Total Estimated Effort:** 38-53 hours
 
 ---
 
@@ -169,38 +170,79 @@ This document summarizes all proposed enhancements with priorities, effort estim
 
 ---
 
+### 7. Auto-Cleanup
+
+**File:** [ENHANCEMENT-07-auto-cleanup.md](./ENHANCEMENT-07-auto-cleanup.md)
+
+**What:** Automatic cleanup of downloaded content with multiple strategies
+
+**Why:** Prevent storage bloat, remove watched/old videos automatically
+
+**Key Features:**
+- Keep only last N videos per channel
+- Delete videos older than X days
+- Delete watched videos (Plex integration)
+- Storage limit enforcement
+- Pinned video protection (keeper feature)
+- Preview before deleting
+
+**Dependencies:**
+- Enhancement #2 (Plex Integration Fix) - Required for watched cleanup strategy
+
+**Estimated Effort:** 8-11 hours (Phase 1: 3-4h for keep-last-N)
+
+**Immediate Use Case:**
+- Fix current issue: 135 videos downloaded from NateBJones
+- Set "keep last 3", cleanup removes 132 excess videos
+- Verify `--playlist-end` fix is working
+
+---
+
 ## Recommended Implementation Order
 
-### Phase 1: Quick Wins (3-6 hours)
+### Phase 1: Critical Fixes (4-6 hours)
 
-1. **Enhancement #2: Fix Plex Integration** (1-2h)
-   - Immediate value, already mostly implemented
+1. **Enhancement #7: Auto-Cleanup (Phase 1 Only)** (3-4h)
+   - **IMMEDIATE NEED** - Fix current 135-video download issue
+   - Implement keep-last-N strategy only
+   - Verify `--playlist-end` fix is working
+   - **Start here** - solves active problem
+
+2. **Enhancement #2: Fix Plex Integration** (1-2h)
+   - Quick win, already mostly implemented
    - Find library ID, update config, test
-   - **Start here** - quick success
+   - Enables Plex-based cleanup later
 
-2. **Enhancement #6: Webhook System** (8-10h)
+### Phase 2: Foundation (8-10 hours)
+
+3. **Enhancement #6: Webhook System** (8-10h)
    - Foundation for notifications and automation
    - Enables Plex auto-refresh
    - Prerequisite for Notifiarr integration
 
-### Phase 2: Core Features (12-16 hours)
+### Phase 3: Core Features (12-16 hours)
 
-3. **Enhancement #1: Notifications via Notifiarr** (2-4h)
-   - Requires webhook system from Phase 1
+4. **Enhancement #1: Notifications via Notifiarr** (2-4h)
+   - Requires webhook system from Phase 2
    - Configure Notifiarr webhook
    - Test notifications
 
-4. **Enhancement #3: Download History** (6-8h)
+5. **Enhancement #3: Download History** (6-8h)
    - Better visibility and troubleshooting
    - Standalone feature, no dependencies
 
-### Phase 3: Advanced Features (12-16 hours)
+### Phase 4: Advanced Features (16-22 hours)
 
-5. **Enhancement #4: Per-Channel Settings** (6-8h)
+6. **Enhancement #7: Auto-Cleanup (Phases 2-3)** (4-7h)
+   - Advanced cleanup strategies (age-based, watched, storage limit)
+   - Scheduler integration
+   - Builds on Phase 1 keep-last-N implementation
+
+7. **Enhancement #4: Per-Channel Settings** (6-8h)
    - Major flexibility improvement
    - Prerequisite for bulk operations
 
-6. **Enhancement #5: Bulk Operations** (6-8h)
+8. **Enhancement #5: Bulk Operations** (6-8h)
    - Convenience feature for large libraries
    - Depends on per-channel settings
 
@@ -209,6 +251,11 @@ This document summarizes all proposed enhancements with priorities, effort estim
 ## Priority Matrix
 
 ```
+CRITICAL (Immediate Need):
+└─ Enhancement #7: Auto-Cleanup Phase 1 (Keep-Last-N)
+   ├─ Solves current 135-video problem
+   └─ Verifies --playlist-end fix
+
 High Value, Low Complexity (Do First):
 ├─ Enhancement #2: Fix Plex Integration
 └─ Enhancement #1: Notifications (via Notifiarr)
@@ -216,6 +263,7 @@ High Value, Low Complexity (Do First):
 High Value, Medium Complexity (Do Next):
 ├─ Enhancement #6: Webhook System
 ├─ Enhancement #3: Download History
+├─ Enhancement #7: Auto-Cleanup Phases 2-3 (Advanced Strategies)
 └─ Enhancement #4: Per-Channel Settings
 
 Medium Value, Low Complexity (Do Later):
@@ -233,7 +281,10 @@ Enhancement #6 (Webhooks)
 Enhancement #4 (Per-Channel Settings)
     └─> Enhancement #5 (Bulk Operations - quality/limit updates)
 
-Enhancement #2 (Plex Fix) - Standalone
+Enhancement #2 (Plex Fix)
+    └─> Enhancement #7 Phase 3 (Watched cleanup strategy)
+
+Enhancement #7 Phase 1 (Keep-Last-N) - Standalone, CRITICAL
 Enhancement #3 (History) - Standalone
 ```
 
