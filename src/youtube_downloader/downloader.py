@@ -277,10 +277,10 @@ class DownloadManager:
                     "yt-dlp",
                     "--format",
                     self.settings.max_quality,
-                    "--max-downloads",
-                    str(self.settings.videos_per_channel),  # Download N successful videos (not just first N)
+                    "--playlist-end",
+                    str(self.settings.videos_per_channel),  # Only check the first N videos (newest)
                     "--download-archive",
-                    str(self.settings.archive_file),
+                    str(self.settings.archive_file),  # Skip videos already downloaded
                     "--output",
                     output_template,
                     # Metadata for Plex
