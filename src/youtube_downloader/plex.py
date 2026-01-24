@@ -245,6 +245,52 @@ class PlexIntegration:
             logger.error(f"Poster upload error for ratingKey {rating_key}: {e}")
             return False
 
+    def upload_metadata(self, rating_key: int, title: Optional[str] = None,
+                       summary: Optional[str] = None, date: Optional[str] = None) -> bool:
+        """Upload metadata (title, summary, date) for a Plex item.
+
+        Args:
+            rating_key: Plex item ratingKey
+            title: Full title (with emojis if present)
+            summary: Description
+            date: Release date in YYYY-MM-DD format
+
+        Returns:
+            True if upload succeeded
+        """
+        try:
+            # Fetch the item from Plex by ratingKey
+            item = self.plex.fetchItem(f"/library/metadata/{rating_key}")
+
+            # Build edit dictionary with locked fields
+            # PlexAPI uses field.value and field.locked syntax for editing with locks
+            edits = {}
+            locks = {}
+
+            if title is not None:
+                edits['title.value'] = title
+                edits['title.locked'] = 1
+            if summary is not None:
+                edits['summary.value'] = summary
+                edits['summary.locked'] = 1
+            if date is not None:
+                edits['originallyAvailableAt.value'] = date
+                edits['originallyAvailableAt.locked'] = 1
+
+            if not edits:
+                logger.warning(f"No metadata provided for ratingKey {rating_key}")
+                return False
+
+            # Apply edits with locks using edit() method
+            item.edit(**edits)
+
+            logger.info(f"Updated metadata for '{item.title}' (ratingKey {rating_key})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Metadata upload error for ratingKey {rating_key}: {e}")
+            return False
+
     def upload_thumbnails_for_directory(self, download_dir: Path) -> int:
         """Upload thumbnails for all videos in a directory.
 
@@ -271,25 +317,31 @@ class PlexIntegration:
             if item_file:
                 file_to_key[Path(item_file).name] = item["ratingKey"]
 
-        # Find all poster files and upload them
+        # Find all poster files and upload them (search in Season folders)
         for channel_dir in download_dir.iterdir():
             if not channel_dir.is_dir():
                 continue
 
-            for poster_file in channel_dir.glob("*-poster.jpg"):
-                # Get corresponding video filename
-                base_name = poster_file.name.replace("-poster.jpg", "")
-                video_extensions = [".mp4", ".mkv", ".webm"]
+            # Check for Season folders (TV Shows structure)
+            for season_dir in channel_dir.iterdir():
+                if not season_dir.is_dir() or not season_dir.name.startswith("Season"):
+                    continue
 
-                for ext in video_extensions:
-                    video_name = f"{base_name}{ext}"
-                    if video_name in file_to_key:
-                        rating_key = file_to_key[video_name]
+                # Match .jpg files (our thumbnails are named same as video + .jpg)
+                for poster_file in season_dir.glob("*.jpg"):
+                    # Get corresponding video filename (same name, different extension)
+                    base_name = poster_file.stem  # Remove .jpg
+                    video_extensions = [".mp4", ".mkv", ".webm"]
 
-                        # Upload and lock poster
-                        if self.upload_poster(rating_key, str(poster_file)):
-                            uploaded += 1
-                        break
+                    for ext in video_extensions:
+                        video_name = f"{base_name}{ext}"
+                        if video_name in file_to_key:
+                            rating_key = file_to_key[video_name]
+
+                            # Upload and lock poster
+                            if self.upload_poster(rating_key, str(poster_file)):
+                                uploaded += 1
+                            break
 
         logger.info(f"Uploaded {uploaded} thumbnails to Plex")
         return uploaded
@@ -316,6 +368,97 @@ class PlexIntegration:
 
         # Upload thumbnails
         return self.upload_thumbnails_for_directory(download_dir)
+
+    def sync_metadata(self, download_dir: Path) -> int:
+        """Refresh library and upload metadata from .info.json files.
+
+        Scans all downloaded videos, reads their .info.json files, and uploads
+        title, summary, and date metadata to Plex.
+
+        Args:
+            download_dir: Directory containing downloaded videos
+
+        Returns:
+            Number of items with metadata uploaded
+        """
+        import json
+        from datetime import datetime
+
+        logger.info("Starting Plex metadata sync")
+
+        # Trigger library refresh
+        if not self.refresh_library():
+            logger.warning("Could not trigger library refresh, continuing anyway")
+
+        # Wait for scan to complete
+        self.wait_for_scan()
+
+        uploaded = 0
+
+        # Get all items from Plex
+        items = self.get_all_items()
+        logger.info(f"Found {len(items)} items in Plex library")
+
+        # Build a map of filename -> ratingKey
+        file_to_key: dict[str, int] = {}
+        for item in items:
+            item_file = item.get("file", "")
+            if item_file:
+                file_to_key[Path(item_file).name] = item["ratingKey"]
+
+        # Find all .info.json files and upload metadata
+        for channel_dir in download_dir.iterdir():
+            if not channel_dir.is_dir():
+                continue
+
+            # Check for Season folders (TV Shows structure)
+            for season_dir in channel_dir.iterdir():
+                if not season_dir.is_dir() or not season_dir.name.startswith("Season"):
+                    continue
+
+                for info_file in season_dir.glob("*.info.json"):
+                    try:
+                        # Read metadata from .info.json
+                        with open(info_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+
+                        # Extract fields
+                        full_title = data.get('title', '')  # Includes emojis
+                        description = data.get('description', '')
+                        upload_date = data.get('upload_date', '')  # YYYYMMDD format
+
+                        # Convert upload_date to YYYY-MM-DD
+                        if upload_date and len(upload_date) == 8:
+                            dt = datetime.strptime(upload_date, "%Y%m%d")
+                            date_str = dt.strftime("%Y-%m-%d")
+                        else:
+                            date_str = None
+
+                        # Find corresponding video file
+                        # Remove compound .info.json extension (stem only removes last suffix)
+                        base_name = info_file.with_suffix("").with_suffix("").name
+                        video_extensions = [".mp4", ".mkv", ".webm"]
+
+                        for ext in video_extensions:
+                            video_name = f"{base_name}{ext}"
+                            if video_name in file_to_key:
+                                rating_key = file_to_key[video_name]
+
+                                # Upload metadata
+                                if self.upload_metadata(
+                                    rating_key,
+                                    title=full_title,
+                                    summary=description[:1000],  # Plex limit
+                                    date=date_str
+                                ):
+                                    uploaded += 1
+                                break
+
+                    except Exception as e:
+                        logger.error(f"Error processing {info_file}: {e}")
+
+        logger.info(f"Uploaded metadata for {uploaded} items")
+        return uploaded
 
     def get_or_create_keepers_collection(self):
         """Get or create the 'Keepers' collection.
@@ -474,3 +617,39 @@ class PlexIntegration:
             logger.error(f"Error syncing Keepers collection: {e}")
 
         return counts
+
+    def get_watched_videos(self) -> list[str]:
+        """Get list of file paths for all watched videos in the library.
+
+        Returns:
+            List of absolute file paths for watched videos
+        """
+        watched_files = []
+
+        try:
+            # Get all items from library
+            items = self.get_all_items()
+
+            for item in items:
+                rating_key = item.get("ratingKey")
+                file_path = item.get("file", "")
+
+                if not rating_key or not file_path:
+                    continue
+
+                # Fetch full item details to get watch status
+                try:
+                    plex_item = self.plex.fetchItem(f"/library/metadata/{rating_key}")
+                    if plex_item.isWatched:
+                        watched_files.append(file_path)
+                        logger.debug(f"Watched: {Path(file_path).name}")
+                except Exception as e:
+                    logger.debug(f"Error checking watch status for {file_path}: {e}")
+                    continue
+
+            logger.info(f"Found {len(watched_files)} watched videos in Plex")
+
+        except Exception as e:
+            logger.error(f"Error getting watched videos: {e}")
+
+        return watched_files

@@ -408,6 +408,30 @@
                 </button>
             </div>
 
+            <div style="background: #1f2a1f; padding: 20px; border-radius: 8px; border: 1px solid #2a4a2a; margin-bottom: 20px;">
+                <h3 style="color: #4CAF50; margin-bottom: 10px; font-size: 16px;">🧹 Auto-Cleanup</h3>
+                <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">
+                    Keep only the most recent N videos per channel. Older videos are deleted to save space. Pinned videos are never deleted.
+                </p>
+
+                <div style="margin-bottom: 15px;">
+                    <label for="cleanupKeepCount" style="font-size: 13px; display: block; margin-bottom: 5px;">Keep Last N Videos Per Channel:</label>
+                    <input type="number" id="cleanupKeepCount" value="3" min="1" max="100" style="width: 100px; padding: 8px;">
+                    <small style="display: block; color: #666; margin-top: 5px; font-size: 12px;">
+                        Videos beyond this limit will be deleted (oldest first)
+                    </small>
+                </div>
+
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" class="secondary" onclick="previewCleanup()" style="padding: 10px 20px;">
+                        🔍 Preview Cleanup
+                    </button>
+                    <button type="button" class="secondary" onclick="executeCleanup()" style="padding: 10px 20px;">
+                        🗑️ Run Cleanup Now
+                    </button>
+                </div>
+            </div>
+
             <div style="background: #2a1515; padding: 20px; border-radius: 8px; border: 1px solid #4a1515;">
                 <h3 style="color: #f44336; margin-bottom: 10px; font-size: 16px;">⚠️ Danger Zone</h3>
                 <p style="font-size: 13px; color: #aaa; margin-bottom: 15px;">
@@ -498,6 +522,33 @@
 
             <div class="modal-buttons" style="margin-top: 20px;">
                 <button type="button" class="outline" onclick="closeLogs()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cleanup Preview Modal -->
+    <div class="modal-overlay" id="cleanupPreviewModal" onclick="closeCleanupPreviewOnOverlay(event)" style="display: none;">
+        <div class="modal" style="max-width: 90%; width: 1000px;">
+            <h2>🔍 Cleanup Preview</h2>
+
+            <div id="cleanupPreviewStats" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px;">
+                <!-- Stats cards will be inserted here -->
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <h3 style="font-size: 16px; color: #ff9800; margin-bottom: 10px;">Videos to be Deleted</h3>
+                <div style="max-height: 400px; overflow-y: auto; background: #1a1a1a; padding: 15px; border-radius: 6px;">
+                    <div id="cleanupPreviewList">
+                        <!-- Video list will be inserted here -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-buttons">
+                <button type="button" class="outline" onclick="closeCleanupPreview()">Cancel</button>
+                <button type="button" class="danger" onclick="confirmCleanup()" id="confirmCleanupBtn">
+                    🗑️ Delete These Videos
+                </button>
             </div>
         </div>
     </div>
@@ -1269,6 +1320,170 @@
                 pollStatus();
             }
         }, 1000);
+
+        // Cleanup Functions
+        let cleanupPreviewData = null;
+
+        async function previewCleanup() {
+            const keepCount = parseInt(document.getElementById('cleanupKeepCount').value);
+            const modal = document.getElementById('cleanupPreviewModal');
+            const statsDiv = document.getElementById('cleanupPreviewStats');
+            const listDiv = document.getElementById('cleanupPreviewList');
+
+            // Show loading state
+            statsDiv.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: #ff9800;">Loading preview...</div>';
+            listDiv.innerHTML = '<div style="text-align: center; color: #888;">Analyzing videos...</div>';
+            modal.style.display = 'flex';
+            setTimeout(() => modal.classList.add('active'), 10);
+
+            try {
+                const response = await fetch('/api/cleanup/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keep_count: keepCount })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    closeCleanupPreview();
+                    return;
+                }
+
+                cleanupPreviewData = data;
+
+                // Show stats cards
+                statsDiv.innerHTML = `
+                    <div style="background: #2a1515; padding: 15px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: bold; color: #f44336;">${data.videos_to_delete}</div>
+                        <div style="font-size: 12px; color: #aaa; margin-top: 5px;">Videos to Delete</div>
+                    </div>
+                    <div style="background: #1f2a1f; padding: 15px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">${data.space_to_free_gb} GB</div>
+                        <div style="font-size: 12px; color: #aaa; margin-top: 5px;">Space to Free</div>
+                    </div>
+                    <div style="background: #1a2a3a; padding: 15px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: bold; color: #2196F3;">${data.channels_processed}</div>
+                        <div style="font-size: 12px; color: #aaa; margin-top: 5px;">Channels Processed</div>
+                    </div>
+                `;
+
+                // Show video list
+                if (data.videos.length === 0) {
+                    listDiv.innerHTML = '<div style="text-align: center; color: #4CAF50; padding: 20px;">✅ No videos to delete! All channels are within the limit.</div>';
+                } else {
+                    listDiv.innerHTML = data.videos.map(v => `
+                        <div style="padding: 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: start;">
+                            <div style="flex: 1;">
+                                <div style="font-weight: bold; color: #e0e0e0; margin-bottom: 5px;">${escapeHtml(v.title)}</div>
+                                <div style="font-size: 12px; color: #888;">
+                                    ${escapeHtml(v.channel_name)} • ${v.upload_date} • ${v.size_mb} MB
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+
+            } catch (error) {
+                alert('Error: ' + error.message);
+                closeCleanupPreview();
+            }
+        }
+
+        function closeCleanupPreview() {
+            const modal = document.getElementById('cleanupPreviewModal');
+            modal.classList.remove('active');
+            setTimeout(() => modal.style.display = 'none', 300);
+            cleanupPreviewData = null;
+        }
+
+        function closeCleanupPreviewOnOverlay(event) {
+            if (event.target.id === 'cleanupPreviewModal') {
+                closeCleanupPreview();
+            }
+        }
+
+        async function confirmCleanup() {
+            if (!cleanupPreviewData) {
+                alert('No preview data available. Please preview cleanup first.');
+                return;
+            }
+
+            const keepCount = parseInt(document.getElementById('cleanupKeepCount').value);
+
+            if (!confirm(`⚠️ WARNING: This will permanently delete ${cleanupPreviewData.videos_to_delete} videos and free ${cleanupPreviewData.space_to_free_gb} GB.\n\nThis action CANNOT be undone!\n\nAre you sure you want to continue?`)) {
+                return;
+            }
+
+            const confirmBtn = document.getElementById('confirmCleanupBtn');
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = '⏳ Deleting...';
+
+            try {
+                const response = await fetch('/api/cleanup/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keep_count: keepCount })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = '🗑️ Delete These Videos';
+                    return;
+                }
+
+                // Success - close modal and show result
+                closeCleanupPreview();
+                alert(`✅ Cleanup Complete!\n\nDeleted: ${data.videos_deleted} videos\nSpace Freed: ${data.space_freed_gb} GB\nChannels Processed: ${data.channels_processed}`);
+
+                // Refresh channel list
+                loadChannels();
+
+            } catch (error) {
+                alert('Error: ' + error.message);
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = '🗑️ Delete These Videos';
+            }
+        }
+
+        async function executeCleanup() {
+            const keepCount = parseInt(document.getElementById('cleanupKeepCount').value);
+
+            if (!confirm(`⚠️ This will delete videos beyond the last ${keepCount} per channel.\n\nPreview cleanup first to see what will be deleted?\n\nClick OK to preview, or Cancel to skip preview and delete now.`)) {
+                // User clicked Cancel - execute without preview
+                if (!confirm(`⚠️ FINAL WARNING: Delete videos without previewing?\n\nThis CANNOT be undone!`)) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/api/cleanup/execute', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ keep_count: keepCount })
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        alert('Error: ' + (data.error || 'Unknown error'));
+                        return;
+                    }
+
+                    alert(`✅ Cleanup Complete!\n\nDeleted: ${data.videos_deleted} videos\nSpace Freed: ${data.space_freed_gb} GB`);
+                    loadChannels();
+
+                } catch (error) {
+                    alert('Error: ' + error.message);
+                }
+            } else {
+                // User clicked OK - show preview
+                previewCleanup();
+            }
+        }
     </script>
 </body>
 </html>

@@ -6,6 +6,8 @@ Automated YouTube channel downloader with Plex integration and web UI.
 
 - 📥 **Automatic Downloads** - Monitor YouTube channels and download latest videos
 - 🖼️ **Plex Integration** - Auto-upload thumbnails to Plex via API
+- 🎨 **Poster Letterboxing** - Auto-converts 16:9 thumbnails to 2:3 Plex poster format with black bars
+- 📝 **Smart Title Cleanup** - Strips redundant channel prefixes for cleaner display
 - 🌐 **Web UI** - Manage channels and monitor downloads via browser
 - 🔒 **Smart Authentication** - Optional auth with local network bypass (like Sonarr/Radarr)
 - 📊 **Database Tracking** - SQLite database tracks downloaded videos
@@ -97,6 +99,33 @@ The Plex integration automatically:
 
 This works even if your Plex library uses the "None" agent.
 
+### Poster Letterboxing
+
+YouTube thumbnails are 16:9 (widescreen), but Plex displays movies as 2:3 posters. The downloader automatically letterboxes thumbnails by:
+1. Resizing to 1000px width
+2. Adding black bars top/bottom to create 1000x1500 (2:3) poster
+3. Saving as the `-poster.jpg` file
+
+**Requirement:** ImageMagick must be installed:
+```bash
+# macOS
+brew install imagemagick
+
+# Ubuntu/Debian
+sudo apt install imagemagick
+
+# If ImageMagick is not found, letterboxing is skipped (thumbnails still work, just 16:9)
+```
+
+### Title Cleanup
+
+Many YouTube channels add redundant prefixes to every video title (e.g., "Arsenal latest news - ..."). The downloader automatically strips common prefixes for cleaner display in Plex:
+- "Arsenal latest news -" → Stripped for Charles Watts videos
+- "Arsenal news -" → Stripped
+- "FPL GWxx -" → Stripped for FPL channels
+
+This makes video titles more distinguishable in your library.
+
 **Getting your Plex token:**
 1. Sign in to Plex Web App
 2. Play any media item
@@ -131,7 +160,7 @@ AUTH_BYPASS_LOCAL=false
 
 1. Install system dependencies:
    ```bash
-   sudo apt install python3 python3-pip yt-dlp ffmpeg
+   sudo apt install python3 python3-pip yt-dlp ffmpeg imagemagick
    ```
 
 2. Create service user:
@@ -253,6 +282,7 @@ ruff check src/
 - **SQLite** - Download tracking database
 - **python-plexapi** - Plex API integration
 - **Click** - Command-line interface
+- **ImageMagick** - Thumbnail letterboxing (optional, graceful fallback)
 
 ## License
 
