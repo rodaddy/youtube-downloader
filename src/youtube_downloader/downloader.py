@@ -85,8 +85,8 @@ def sanitize_name(name: str) -> str:
         flags=re.UNICODE
     )
     clean = emoji_pattern.sub('', name)
-    # Remove wide and narrow special characters
-    clean = re.sub(r'[：｜:|,!?\'\"""＂()（）]', '', clean)
+    # Remove wide and narrow special characters (including / which breaks paths)
+    clean = re.sub(r'[：｜:|,!?\'\"""＂()（）/\\]', '', clean)
     # Replace spaces and dashes with underscores
     clean = clean.replace(' ', '_').replace('-', '_')
     # Collapse multiple underscores
@@ -658,7 +658,8 @@ class DownloadManager:
                     output_template,
                     # Metadata for Plex
                     "--embed-metadata",
-                    "--embed-thumbnail",
+                    # NOTE: --embed-thumbnail removed - causes "Bad file descriptor" errors
+                    # at 100% completion during muxing. We use external thumbnails anyway.
                     "--write-info-json",
                     # External thumbnail for Plex YouTube Agent
                     "--write-thumbnail",
@@ -666,6 +667,12 @@ class DownloadManager:
                     "jpg",
                     # Filename sanitization
                     "--restrict-filenames",
+                    # Error handling
+                    "--no-continue",  # Don't resume partial downloads
+                    "--no-part",  # Don't use .part files - avoids file descriptor issues
+                    # Workaround for YouTube SABR streaming "Bad file descriptor" errors
+                    "--extractor-args",
+                    "youtube:player_client=ios,web",
                     f"https://www.youtube.com/watch?v={video_id}",
                 ]
 
@@ -1247,7 +1254,8 @@ class DownloadManager:
                     "duration>60&!is_live",  # Skip shorts (<60s) and live streams (no spaces around &)
                     # Metadata for Plex
                     "--embed-metadata",
-                    "--embed-thumbnail",
+                    # NOTE: --embed-thumbnail removed - causes "Bad file descriptor" errors
+                    # at 100% completion during muxing. We use external thumbnails anyway.
                     "--write-info-json",
                     # External thumbnail for Plex YouTube Agent
                     "--write-thumbnail",
@@ -1259,6 +1267,11 @@ class DownloadManager:
                     # Error handling
                     "--ignore-errors",  # Continue downloading playlist even if some videos fail
                     "--no-continue",  # Don't resume partial downloads - prevents HTTP 416 errors
+                    "--no-part",  # Don't use .part files - avoids file descriptor issues
+                    # Workaround for YouTube SABR streaming "Bad file descriptor" errors
+                    # See: https://github.com/yt-dlp/yt-dlp/issues/12482
+                    "--extractor-args",
+                    "youtube:player_client=ios,web",
                     # Other options
                     "--progress",
                     "--verbose",  # More detailed error messages
