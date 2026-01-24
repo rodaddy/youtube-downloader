@@ -874,6 +874,20 @@ class DownloadManager:
             for file_path in watched_files:
                 video_path = Path(file_path)
 
+                # Translate Plex path to local path if needed
+                # Plex may use different mount point (e.g., /mnt/media vs /Volumes/media_files)
+                if not video_path.exists():
+                    # Try to find the file by matching the relative path from download_dir
+                    # Extract filename and search in our download directory
+                    video_name = video_path.name
+                    matches = list(self.settings.download_dir.rglob(video_name))
+                    if matches:
+                        video_path = matches[0]
+                        logger.debug(f"Translated Plex path to: {video_path}")
+                    else:
+                        logger.debug(f"Video already deleted: {video_name}")
+                        continue
+
                 if not video_path.exists():
                     logger.debug(f"Video already deleted: {video_path.name}")
                     continue
@@ -1556,10 +1570,17 @@ class DownloadManager:
                 title = metadata.get('title', 'Unknown_Title')
 
                 # Find the actual video file
+                # Note: Can't use with_suffix() as it breaks on filenames with periods
+                # e.g. "Title. [VIDEO_ID].info.json" -> with_suffix would break on the period before [
                 video_file = None
+                info_str = str(info_file)
+                if info_str.endswith('.info.json'):
+                    base_name = info_str[:-10]  # Remove .info.json (10 chars)
+                else:
+                    base_name = info_str
+
                 for ext in ['.mp4', '.mkv', '.webm', '.m4a']:
-                    base = info_file.with_suffix('').with_suffix('')  # Remove .info.json
-                    potential = base.with_suffix(ext)
+                    potential = Path(base_name + ext)
                     if potential.exists():
                         video_file = potential
                         break
@@ -1583,8 +1604,8 @@ class DownloadManager:
 
                     continue
 
-                # Find thumbnail
-                thumbnail = base.with_suffix('.jpg')
+                # Find thumbnail (use base_name from video file lookup)
+                thumbnail = Path(base_name + '.jpg')
 
                 # Sanitize names (strip redundant prefixes first)
                 sanitized_channel = sanitize_name(uploader)
