@@ -12,6 +12,7 @@ from flask_httpauth import HTTPBasicAuth
 from loguru import logger
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from .cleanup import CleanupManager
 from .config import Settings
 from .database import Database
 from .downloader import DownloadManager
@@ -51,6 +52,11 @@ def create_app(settings: Settings | None = None) -> Flask:
 
     # Setup logging
     setup_logger(debug=settings.debug, log_dir=settings.log_dir)
+
+    # Suppress Werkzeug HTTP access logs (too verbose)
+    import logging
+    logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
     logger.info("Starting YouTube Downloader")
     logger.debug(f"Download directory: {settings.download_dir}")
     logger.debug(f"Videos per channel: {settings.videos_per_channel}")
@@ -73,6 +79,10 @@ def create_app(settings: Settings | None = None) -> Flask:
     # Create download manager with database
     download_manager = DownloadManager(settings, database=database)
 
+    # Create cleanup manager
+    cleanup_manager = CleanupManager(database)
+    app.cleanup_manager = cleanup_manager  # Make available to routes
+
     # Create scheduler (only in main process, not reloader)
     # When Flask debug mode is on, it creates a reloader process that would also start the scheduler
     # We only want the scheduler in the main process
@@ -82,7 +92,8 @@ def create_app(settings: Settings | None = None) -> Flask:
     if not settings.debug or is_reloader:
         scheduler = DownloadScheduler(settings)
         scheduler.set_download_callback(download_manager.download_all_channels)
-        scheduler.start(interval_hours=2.0)
+        scheduler.set_cleanup_callback(lambda: download_manager._enforce_directory_structure(None))
+        scheduler.start(interval_hours=2.0, cleanup_interval_hours=1.0)
 
         # Register cleanup on shutdown
         atexit.register(scheduler.stop)
@@ -203,7 +214,12 @@ def create_app(settings: Settings | None = None) -> Flask:
     @app.route("/api/download/channel", methods=["POST"])
     @auth.login_required
     def download_channel() -> tuple:
-        """Download latest videos from a single channel."""
+        """Download latest videos from a single channel.
+
+        Request body:
+            channel_url (required): YouTube channel URL
+            quality (optional): Quality preset - "default" (1080p HDR), "best" (4K HDR), or custom format string
+        """
         data = request.json
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
@@ -212,8 +228,9 @@ def create_app(settings: Settings | None = None) -> Flask:
         if not channel_url:
             return jsonify({"error": "No channel URL provided"}), 400
 
-        download_id = download_manager.start_download(channel_url)
-        return jsonify({"download_id": download_id})
+        quality = data.get("quality", "best")  # Default to "best" for manual downloads
+        download_id = download_manager.start_download(channel_url, quality=quality)
+        return jsonify({"download_id": download_id, "quality": quality})
 
     @app.route("/api/download/all", methods=["POST"])
     @auth.login_required
@@ -464,6 +481,377 @@ def create_app(settings: Settings | None = None) -> Flask:
             })
         except Exception as e:
             logger.exception(f"Cleanup failed: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/cleanup/enforce-structure", methods=["POST"])
+    def enforce_directory_structure() -> tuple:
+        """Trigger directory structure enforcement (consolidate duplicates, cleanup metadata folders)."""
+        try:
+            logger.info("Manual directory structure enforcement triggered")
+            download_manager._enforce_directory_structure(None)
+            return jsonify({
+                "message": "Directory structure enforcement complete",
+                "status": "success"
+            })
+        except Exception as e:
+            logger.exception(f"Directory structure enforcement failed: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/cleanup/fix-dates", methods=["POST"])
+    def fix_file_dates() -> tuple:
+        """Fix file modification times to match upload dates (for Plex release date)."""
+        try:
+            logger.info("Fixing file modification times for all videos")
+            from datetime import datetime
+            import os
+            import json
+
+            fixed_count = 0
+            error_count = 0
+
+            # Scan all channel directories
+            for channel_dir in settings.download_dir.iterdir():
+                if not channel_dir.is_dir() or channel_dir.name.startswith('.'):
+                    continue
+
+                # Scan video folders
+                for video_folder in channel_dir.iterdir():
+                    if not video_folder.is_dir():
+                        continue
+
+                    # Find .info.json to get upload_date
+                    info_files = list(video_folder.glob("*.info.json"))
+                    if not info_files:
+                        continue
+
+                    try:
+                        with open(info_files[0]) as f:
+                            metadata = json.load(f)
+
+                        upload_date_str = metadata.get("upload_date")
+                        if not upload_date_str:
+                            continue
+
+                        # Parse upload_date and create timestamp
+                        upload_datetime = datetime.strptime(upload_date_str, "%Y%m%d")
+                        upload_timestamp = upload_datetime.replace(hour=12).timestamp()
+
+                        # Set mtime for all files in folder
+                        for file in video_folder.iterdir():
+                            if file.is_file():
+                                os.utime(file, (upload_timestamp, upload_timestamp))
+
+                        fixed_count += 1
+                        logger.debug(f"Fixed dates for: {video_folder.name}")
+
+                    except Exception as e:
+                        logger.debug(f"Could not fix {video_folder.name}: {e}")
+                        error_count += 1
+
+            logger.info(f"✅ Fixed {fixed_count} video folders, {error_count} errors")
+
+            return jsonify({
+                "message": f"Fixed file dates for {fixed_count} videos",
+                "fixed": fixed_count,
+                "errors": error_count,
+                "status": "success"
+            })
+
+        except Exception as e:
+            logger.exception(f"Date fixing failed: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/plex/fix-dates", methods=["POST"])
+    def fix_plex_dates() -> tuple:
+        """Fix Plex originallyAvailableAt field to match upload dates."""
+        if not settings.plex_enabled:
+            return jsonify({"error": "Plex integration not configured"}), 400
+
+        try:
+            from datetime import datetime
+            import xml.etree.ElementTree as ET
+            import re
+            from pathlib import Path
+
+            logger.info("Fixing Plex originallyAvailableAt dates")
+
+            # Get all items from Plex
+            from youtube_downloader.plex import PlexIntegration
+            plex = PlexIntegration(settings.plex_url, settings.plex_token, settings.plex_library_id)
+            items = plex.get_all_items()
+
+            fixed_count = 0
+            skipped_count = 0
+
+            for item in items:
+                file_path = item.get("file", "")
+                rating_key = item.get("ratingKey")
+
+                if not file_path or not rating_key:
+                    continue
+
+                # Extract date from filename (format: YYYYMMDD_Title.mp4)
+                filename = Path(file_path).name
+                date_match = re.match(r"(\d{8})_", filename)
+
+                if not date_match:
+                    logger.debug(f"No date prefix in filename: {filename}")
+                    skipped_count += 1
+                    continue
+
+                upload_date_str = date_match.group(1)
+
+                try:
+                    # Parse date (YYYYMMDD -> YYYY-MM-DD)
+                    upload_date = datetime.strptime(upload_date_str, "%Y%m%d")
+                    date_formatted = upload_date.strftime("%Y-%m-%d")
+
+                    # Update Plex metadata via API
+                    # PUT /library/metadata/{ratingKey}?originallyAvailableAt.value=YYYY-MM-DD
+                    response = plex._put(
+                        f"/library/metadata/{rating_key}",
+                        params={"originallyAvailableAt.value": date_formatted}
+                    )
+
+                    if response.status_code == 200:
+                        logger.debug(f"Updated {filename[:40]}... to {date_formatted}")
+                        fixed_count += 1
+                    else:
+                        logger.warning(f"Failed to update {rating_key}: {response.status_code}")
+                        skipped_count += 1
+
+                except Exception as e:
+                    logger.debug(f"Error updating {filename}: {e}")
+                    skipped_count += 1
+
+            logger.info(f"✅ Fixed {fixed_count} Plex dates, {skipped_count} skipped")
+
+            return jsonify({
+                "message": f"Fixed Plex dates for {fixed_count} videos",
+                "fixed": fixed_count,
+                "skipped": skipped_count,
+                "status": "success"
+            })
+
+        except Exception as e:
+            logger.exception(f"Plex date fixing failed: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/plex/create-channel-collections", methods=["POST"])
+    def create_channel_collections() -> tuple:
+        """Create Plex collections for each YouTube channel with channel avatars."""
+        if not settings.plex_enabled:
+            return jsonify({"error": "Plex integration not configured"}), 400
+
+        try:
+            from youtube_downloader.plex import PlexIntegration
+            from pathlib import Path
+
+            logger.info("Creating channel collections in Plex")
+
+            plex = PlexIntegration(settings.plex_url, settings.plex_token, settings.plex_library_id)
+
+            created = 0
+            updated = 0
+            errors = 0
+
+            # Get all items from Plex
+            all_items = plex.get_all_items()
+
+            # Group items by channel folder
+            channel_items = {}
+            for item in all_items:
+                file_path = item.get("file", "")
+                if not file_path:
+                    continue
+
+                # Extract channel folder name from path
+                # /mnt/media/.../ChannelName/VideoFolder/video.mp4
+                parts = Path(file_path).parts
+                if len(parts) >= 2:
+                    channel_name = parts[-3]  # ChannelName is 3 levels up from video file
+                    if channel_name not in channel_items:
+                        channel_items[channel_name] = []
+                    channel_items[channel_name].append(item)
+
+            logger.info(f"Found {len(channel_items)} channels")
+
+            # Create/update collection for each channel
+            for channel_name, items in channel_items.items():
+                try:
+                    # Fetch all channel videos as Plex items
+                    plex_items = []
+                    for item in items:
+                        rating_key = item.get("ratingKey")
+                        if rating_key:
+                            plex_item = plex.plex.fetchItem(f"/library/metadata/{rating_key}")
+                            plex_items.append(plex_item)
+
+                    if not plex_items:
+                        logger.warning(f"No items found for {channel_name}, skipping")
+                        continue
+
+                    # Get or create collection
+                    collection = None
+                    for coll in plex.library.collections():
+                        if coll.title == channel_name:
+                            collection = coll
+                            logger.debug(f"Found existing collection: {channel_name}")
+                            break
+
+                    if not collection:
+                        # Create new collection WITH items (required by Plex)
+                        collection = plex.library.createCollection(
+                            title=channel_name,
+                            items=plex_items
+                        )
+                        logger.info(f"Created collection: {channel_name} with {len(plex_items)} items")
+                        created += 1
+                    else:
+                        # Update existing collection
+                        collection.addItems(plex_items)
+                        logger.debug(f"Added {len(plex_items)} items to {channel_name}")
+                        updated += 1
+
+                    # Upload channel avatar as collection poster
+                    channel_dir = settings.download_dir / channel_name
+                    folder_jpg = channel_dir / "folder.jpg"
+
+                    if folder_jpg.exists():
+                        with open(folder_jpg, "rb") as f:
+                            collection.uploadPoster(filepath=f)
+                        collection.lockPoster()
+                        logger.info(f"Uploaded poster for collection: {channel_name}")
+
+                except Exception as e:
+                    logger.error(f"Error creating collection for {channel_name}: {e}")
+                    errors += 1
+
+            logger.info(f"✅ Created {created} collections, updated {updated}, {errors} errors")
+
+            return jsonify({
+                "message": f"Created {created} channel collections, updated {updated}",
+                "created": created,
+                "updated": updated,
+                "errors": errors,
+                "status": "success"
+            })
+
+        except Exception as e:
+            logger.exception(f"Collection creation failed: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/plex/download-channel-posters", methods=["POST"])
+    def download_channel_posters() -> tuple:
+        """Download YouTube channel avatars and save as poster.jpg in channel folders."""
+        try:
+            import json
+            import requests
+            from pathlib import Path
+
+            logger.info("Downloading YouTube channel avatars")
+
+            downloaded = 0
+            skipped = 0
+            errors = 0
+
+            # Scan all channel directories
+            for channel_dir in settings.download_dir.iterdir():
+                if not channel_dir.is_dir() or channel_dir.name.startswith('.'):
+                    continue
+
+                # Check if poster already exists
+                # Plex expects folder.jpg for folder posters in Movies libraries
+                poster_path = channel_dir / "folder.jpg"
+                if poster_path.exists():
+                    logger.debug(f"Poster exists: {channel_dir.name}")
+                    skipped += 1
+                    continue
+
+                # Find any .info.json to get channel info
+                info_file = None
+                for video_folder in channel_dir.iterdir():
+                    if video_folder.is_dir():
+                        info_files = list(video_folder.glob("*.info.json"))
+                        if info_files:
+                            info_file = info_files[0]
+                            break
+
+                if not info_file:
+                    logger.debug(f"No info.json found for {channel_dir.name}")
+                    errors += 1
+                    continue
+
+                try:
+                    # Load metadata
+                    with open(info_file) as f:
+                        metadata = json.load(f)
+
+                    # Get channel URL (e.g., https://www.youtube.com/@Bhavss14)
+                    channel_url = metadata.get("uploader_url") or metadata.get("channel_url")
+
+                    if not channel_url:
+                        logger.warning(f"No channel URL found for {channel_dir.name}")
+                        errors += 1
+                        continue
+
+                    # Fetch channel page to extract avatar URL
+                    # YouTube channel avatars are in og:image meta tag
+                    try:
+                        response = requests.get(channel_url, timeout=10, headers={
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        })
+                        response.raise_for_status()
+
+                        # Extract og:image from HTML (channel avatar)
+                        import re
+                        og_image_match = re.search(r'<meta property="og:image" content="([^"]+)"', response.text)
+
+                        if not og_image_match:
+                            logger.warning(f"Could not extract avatar from {channel_url}")
+                            errors += 1
+                            continue
+
+                        avatar_url = og_image_match.group(1)
+
+                        # Download avatar
+                        avatar_response = requests.get(avatar_url, timeout=10)
+                        if avatar_response.status_code == 200:
+                            with open(poster_path, "wb") as f:
+                                f.write(avatar_response.content)
+                            logger.info(f"Downloaded avatar for {channel_dir.name}")
+                            downloaded += 1
+                        else:
+                            logger.warning(f"Failed to download avatar: {avatar_response.status_code}")
+                            errors += 1
+
+                    except requests.RequestException as e:
+                        logger.warning(f"Error fetching channel page for {channel_dir.name}: {e}")
+                        errors += 1
+
+                except Exception as e:
+                    logger.error(f"Error processing {channel_dir.name}: {e}")
+                    errors += 1
+
+            logger.info(f"✅ Downloaded {downloaded} channel avatars, {skipped} skipped, {errors} errors")
+
+            # Trigger Plex refresh to pick up new posters
+            if settings.plex_enabled and downloaded > 0:
+                from youtube_downloader.plex import PlexIntegration
+                plex = PlexIntegration(settings.plex_url, settings.plex_token, settings.plex_library_id)
+                plex.refresh_library()
+                logger.info("Triggered Plex library refresh")
+
+            return jsonify({
+                "message": f"Downloaded {downloaded} channel avatars",
+                "downloaded": downloaded,
+                "skipped": skipped,
+                "errors": errors,
+                "status": "success"
+            })
+
+        except Exception as e:
+            logger.exception(f"Channel poster download failed: {e}")
             return jsonify({"error": str(e)}), 500
 
     @app.route("/api/sync", methods=["POST"])
@@ -744,5 +1132,49 @@ def create_app(settings: Settings | None = None) -> Flask:
                 "error": str(e),
                 "note": "Manual restart required: Ctrl+C then re-run serve command"
             }), 500
+
+    @app.route("/api/cleanup/preview", methods=["POST"])
+    @auth.login_required
+    def preview_cleanup():
+        """Preview what will be deleted without actually deleting."""
+        data = request.json or {}
+        keep_count = data.get("keep_count", 3)
+
+        try:
+            logger.info(f"Cleanup preview requested (keep_count={keep_count})")
+            result = app.cleanup_manager.cleanup_keep_last_n(
+                keep_count=keep_count,
+                preview=True
+            )
+            logger.info(
+                f"Cleanup preview: {result['videos_to_delete']} videos, "
+                f"{result['space_to_free_gb']} GB"
+            )
+            return jsonify(result)
+        except Exception as e:
+            logger.exception(f"Cleanup preview failed: {e}")
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/cleanup/execute", methods=["POST"])
+    @auth.login_required
+    def execute_cleanup():
+        """Execute cleanup operation."""
+        data = request.json or {}
+        keep_count = data.get("keep_count", 3)
+
+        try:
+            logger.warning(f"Cleanup execution started (keep_count={keep_count})")
+            result = app.cleanup_manager.cleanup_keep_last_n(
+                keep_count=keep_count,
+                preview=False
+            )
+            logger.warning(
+                f"Cleanup complete: {result['videos_deleted']} videos deleted, "
+                f"{result['space_freed_gb']} GB freed"
+            )
+            return jsonify(result)
+        except Exception as e:
+            logger.exception(f"Cleanup execution failed: {e}")
+            return jsonify({"error": str(e)}), 500
 
     return app

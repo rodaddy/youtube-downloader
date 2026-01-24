@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
+from loguru import logger
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -59,7 +60,11 @@ class Settings(BaseSettings):
     )
     max_quality: str = Field(
         default="best[height<=1080]",
-        description="yt-dlp format selector for video quality",
+        description="yt-dlp format selector for video quality (default/scheduled downloads)",
+    )
+    max_quality_best: str = Field(
+        default="bestvideo+bestaudio/best",
+        description="yt-dlp format selector for best quality (manual downloads, no limits)",
     )
     host: str = Field(default="0.0.0.0", description="Server host address")
     port: int = Field(
@@ -154,7 +159,13 @@ class Settings(BaseSettings):
 
     def ensure_download_dir(self) -> None:
         """Create the download directory if it doesn't exist."""
+        logger.debug(f"⚙️  ENSURE_DOWNLOAD_DIR: {self.download_dir}")
+        if self.download_dir.exists():
+            logger.debug(f"⚙️  Directory already exists: {self.download_dir}")
+        else:
+            logger.info(f"⚙️  Creating directory: {self.download_dir}")
         self.download_dir.mkdir(parents=True, exist_ok=True)
+        logger.debug(f"⚙️  ENSURE_DOWNLOAD_DIR: Complete")
 
     def update_runtime_config(
         self,
@@ -167,31 +178,44 @@ class Settings(BaseSettings):
             download_dir: New download directory path
             videos_per_channel: New videos per channel limit
         """
+        logger.info(f"⚙️  UPDATE_RUNTIME_CONFIG: download_dir={download_dir}, videos_per_channel={videos_per_channel}")
+
         config_path = _get_runtime_config_path()
+        logger.debug(f"⚙️  Config path: {config_path}")
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Load existing config
         current = _load_runtime_overrides()
+        logger.debug(f"⚙️  Current overrides: {current}")
 
         # Update with new values
         if download_dir is not None:
             path = Path(download_dir).expanduser()
             if not path.is_absolute():
                 path = self.project_root / path
+            logger.info(f"⚙️  Updating download_dir: {self.download_dir} → {path}")
             current["download_dir"] = str(path)
             # Update in-memory setting using object.__setattr__ to bypass frozen
             object.__setattr__(self, "download_dir", path)
 
         if videos_per_channel is not None:
+            logger.info(f"⚙️  Updating videos_per_channel: {self.videos_per_channel} → {videos_per_channel}")
             current["videos_per_channel"] = videos_per_channel
             object.__setattr__(self, "videos_per_channel", videos_per_channel)
 
         # Save to disk
+        logger.debug(f"⚙️  Saving to {config_path}: {current}")
         with open(config_path, "w") as f:
             json.dump(current, f, indent=2)
+        logger.info(f"⚙️  UPDATE_RUNTIME_CONFIG: Complete")
 
     @classmethod
     def load_with_overrides(cls) -> "Settings":
         """Load settings with runtime overrides applied."""
+        logger.debug(f"⚙️  LOAD_WITH_OVERRIDES: Loading runtime config...")
         overrides = _load_runtime_overrides()
-        return cls(**overrides)
+        logger.info(f"⚙️  LOAD_WITH_OVERRIDES: Applying overrides: {overrides}")
+        settings = cls(**overrides)
+        logger.debug(f"⚙️  LOAD_WITH_OVERRIDES: download_dir={settings.download_dir}")
+        logger.debug(f"⚙️  LOAD_WITH_OVERRIDES: videos_per_channel={settings.videos_per_channel}")
+        return settings

@@ -42,6 +42,15 @@ def cli() -> None:
 )
 def serve(host: str | None, port: int | None, debug: bool | None) -> None:
     """Start the web server (default command)."""
+    # Kill any existing instances before starting (prevents zombie processes)
+    import subprocess
+    try:
+        subprocess.run(["pkill", "-9", "-f", "youtube_downloader.cli serve"], check=False)
+        subprocess.run(["pkill", "-9", "-f", "yt-dlp"], check=False)
+        print("✅ Cleaned up any existing processes")
+    except Exception as e:
+        print(f"⚠️  Cleanup warning (non-critical): {e}")
+
     settings = Settings.load_with_overrides()
 
     # Apply CLI overrides

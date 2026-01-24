@@ -26,9 +26,12 @@ class DownloadScheduler:
         self.settings = settings
         self.scheduler = BackgroundScheduler()
         self._download_callback: Optional[Callable[[], None]] = None
+        self._cleanup_callback: Optional[Callable[[], None]] = None
         self._is_running = False
         self._last_run: Optional[datetime] = None
         self._next_run: Optional[datetime] = None
+        self._last_cleanup_run: Optional[datetime] = None
+        self._next_cleanup_run: Optional[datetime] = None
 
     def set_download_callback(self, callback: Callable[[], None]) -> None:
         """Set the callback function for scheduled downloads.
@@ -38,11 +41,20 @@ class DownloadScheduler:
         """
         self._download_callback = callback
 
-    def start(self, interval_hours: float = 2.0) -> None:
+    def set_cleanup_callback(self, callback: Callable[[], None]) -> None:
+        """Set the callback function for scheduled cleanup/structure enforcement.
+
+        Args:
+            callback: Function to call for cleanup (e.g., _enforce_directory_structure)
+        """
+        self._cleanup_callback = callback
+
+    def start(self, interval_hours: float = 2.0, cleanup_interval_hours: float = 1.0) -> None:
         """Start the scheduler with the specified interval.
 
         Args:
             interval_hours: Hours between download runs
+            cleanup_interval_hours: Hours between cleanup/structure enforcement runs
         """
         if self._is_running:
             logger.warning("Scheduler already running")
@@ -52,7 +64,7 @@ class DownloadScheduler:
             logger.error("No download callback set - cannot start scheduler")
             return
 
-        # Add the job
+        # Add the download job
         self.scheduler.add_job(
             self._run_download,
             trigger=IntervalTrigger(hours=interval_hours),
@@ -61,18 +73,37 @@ class DownloadScheduler:
             replace_existing=True,
         )
 
+        # Add the cleanup job (runs more frequently)
+        if self._cleanup_callback:
+            self.scheduler.add_job(
+                self._run_cleanup,
+                trigger=IntervalTrigger(hours=cleanup_interval_hours),
+                id="cleanup_job",
+                name="Directory Cleanup",
+                replace_existing=True,
+            )
+
         self.scheduler.start()
         self._is_running = True
 
-        # Get next run time
+        # Get next run times
         job = self.scheduler.get_job("download_job")
         if job and job.next_run_time:
             self._next_run = job.next_run_time
+
+        cleanup_job = self.scheduler.get_job("cleanup_job")
+        if cleanup_job and cleanup_job.next_run_time:
+            self._next_cleanup_run = cleanup_job.next_run_time
 
         logger.info(
             f"Scheduler started - downloads every {interval_hours} hours. "
             f"Next run: {self._next_run}"
         )
+        if self._cleanup_callback:
+            logger.info(
+                f"Cleanup job - runs every {cleanup_interval_hours} hours. "
+                f"Next run: {self._next_cleanup_run}"
+            )
 
     def stop(self) -> None:
         """Stop the scheduler."""
@@ -105,6 +136,23 @@ class DownloadScheduler:
         if job and job.next_run_time:
             self._next_run = job.next_run_time
             logger.info(f"Next scheduled download: {self._next_run}")
+
+    def _run_cleanup(self) -> None:
+        """Execute the cleanup callback and update run times."""
+        self._last_cleanup_run = datetime.now()
+        logger.info(f"Starting scheduled cleanup at {self._last_cleanup_run}")
+
+        try:
+            if self._cleanup_callback:
+                self._cleanup_callback()
+        except Exception as e:
+            logger.exception(f"Scheduled cleanup failed: {e}")
+
+        # Update next run time
+        job = self.scheduler.get_job("cleanup_job")
+        if job and job.next_run_time:
+            self._next_cleanup_run = job.next_run_time
+            logger.info(f"Next scheduled cleanup: {self._next_cleanup_run}")
 
     def get_status(self) -> dict:
         """Get scheduler status.
