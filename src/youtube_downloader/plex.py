@@ -6,8 +6,6 @@ video thumbnails directly to Plex via its API, bypassing broken metadata agents.
 
 import time
 from pathlib import Path
-from typing import Optional
-from urllib.parse import quote
 
 import requests
 from loguru import logger
@@ -35,10 +33,12 @@ class PlexIntegration:
         self.token = token
         self.library_id = library_id
         self._session = requests.Session()
-        self._session.headers.update({
-            "X-Plex-Token": token,
-            "Accept": "application/json",
-        })
+        self._session.headers.update(
+            {
+                "X-Plex-Token": token,
+                "Accept": "application/json",
+            }
+        )
 
         # Initialize PlexServer instance for high-level API operations
         self.plex = PlexServer(self.url, self.token)
@@ -71,9 +71,7 @@ class PlexIntegration:
                 logger.info(f"Plex library {self.library_id} refresh triggered")
                 return True
             else:
-                logger.warning(
-                    f"Plex refresh failed: {response.status_code} {response.text}"
-                )
+                logger.warning(f"Plex refresh failed: {response.status_code} {response.text}")
                 return False
         except requests.RequestException as e:
             logger.error(f"Plex refresh error: {e}")
@@ -150,12 +148,14 @@ class PlexIntegration:
                     media = item.get("Media", [])
                     if media and media[0].get("Part"):
                         file_path = media[0]["Part"][0].get("file", "")
-                        items.append({
-                            "ratingKey": item.get("ratingKey"),
-                            "title": item.get("title", ""),
-                            "file": file_path,
-                            "thumb": item.get("thumb"),
-                        })
+                        items.append(
+                            {
+                                "ratingKey": item.get("ratingKey"),
+                                "title": item.get("title", ""),
+                                "file": file_path,
+                                "thumb": item.get("thumb"),
+                            }
+                        )
 
                 elif item_type == "show":
                     # TV Shows library - need to get episodes
@@ -174,20 +174,22 @@ class PlexIntegration:
                         media = ep.get("Media", [])
                         if media and media[0].get("Part"):
                             file_path = media[0]["Part"][0].get("file", "")
-                            items.append({
-                                "ratingKey": ep.get("ratingKey"),
-                                "title": ep.get("title", ""),
-                                "grandparentTitle": ep.get("grandparentTitle", ""),
-                                "file": file_path,
-                                "thumb": ep.get("thumb"),
-                            })
+                            items.append(
+                                {
+                                    "ratingKey": ep.get("ratingKey"),
+                                    "title": ep.get("title", ""),
+                                    "grandparentTitle": ep.get("grandparentTitle", ""),
+                                    "file": file_path,
+                                    "thumb": ep.get("thumb"),
+                                }
+                            )
 
         except (requests.RequestException, ValueError, KeyError) as e:
             logger.error(f"Error getting library items: {e}")
 
         return items
 
-    def find_episode_by_file(self, file_path: str) -> Optional[int]:
+    def find_episode_by_file(self, file_path: str) -> int | None:
         """Find episode ratingKey by matching file path.
 
         Args:
@@ -245,8 +247,9 @@ class PlexIntegration:
             logger.error(f"Poster upload error for ratingKey {rating_key}: {e}")
             return False
 
-    def upload_metadata(self, rating_key: int, title: Optional[str] = None,
-                       summary: Optional[str] = None, date: Optional[str] = None) -> bool:
+    def upload_metadata(
+        self, rating_key: int, title: str | None = None, summary: str | None = None, date: str | None = None
+    ) -> bool:
         """Upload metadata (title, summary, date) for a Plex item.
 
         Args:
@@ -265,17 +268,16 @@ class PlexIntegration:
             # Build edit dictionary with locked fields
             # PlexAPI uses field.value and field.locked syntax for editing with locks
             edits = {}
-            locks = {}
 
             if title is not None:
-                edits['title.value'] = title
-                edits['title.locked'] = 1
+                edits["title.value"] = title
+                edits["title.locked"] = 1
             if summary is not None:
-                edits['summary.value'] = summary
-                edits['summary.locked'] = 1
+                edits["summary.value"] = summary
+                edits["summary.locked"] = 1
             if date is not None:
-                edits['originallyAvailableAt.value'] = date
-                edits['originallyAvailableAt.locked'] = 1
+                edits["originallyAvailableAt.value"] = date
+                edits["originallyAvailableAt.locked"] = 1
 
             if not edits:
                 logger.warning(f"No metadata provided for ratingKey {rating_key}")
@@ -419,13 +421,13 @@ class PlexIntegration:
                 for info_file in season_dir.glob("*.info.json"):
                     try:
                         # Read metadata from .info.json
-                        with open(info_file, 'r', encoding='utf-8') as f:
+                        with open(info_file, encoding="utf-8") as f:
                             data = json.load(f)
 
                         # Extract fields
-                        full_title = data.get('title', '')  # Includes emojis
-                        description = data.get('description', '')
-                        upload_date = data.get('upload_date', '')  # YYYYMMDD format
+                        full_title = data.get("title", "")  # Includes emojis
+                        description = data.get("description", "")
+                        upload_date = data.get("upload_date", "")  # YYYYMMDD format
 
                         # Convert upload_date to YYYY-MM-DD
                         if upload_date and len(upload_date) == 8:
@@ -449,7 +451,7 @@ class PlexIntegration:
                                     rating_key,
                                     title=full_title,
                                     summary=description[:1000],  # Plex limit
-                                    date=date_str
+                                    date=date_str,
                                 ):
                                     uploaded += 1
                                 break

@@ -3,8 +3,9 @@
 This module provides scheduled download jobs using APScheduler.
 """
 
+from collections.abc import Callable
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -25,13 +26,13 @@ class DownloadScheduler:
         """
         self.settings = settings
         self.scheduler = BackgroundScheduler()
-        self._download_callback: Optional[Callable[[], None]] = None
-        self._cleanup_callback: Optional[Callable[[], None]] = None
+        self._download_callback: Callable[[], None] | None = None
+        self._cleanup_callback: Callable[[], None] | None = None
         self._is_running = False
-        self._last_run: Optional[datetime] = None
-        self._next_run: Optional[datetime] = None
-        self._last_cleanup_run: Optional[datetime] = None
-        self._next_cleanup_run: Optional[datetime] = None
+        self._last_run: datetime | None = None
+        self._next_run: datetime | None = None
+        self._last_cleanup_run: datetime | None = None
+        self._next_cleanup_run: datetime | None = None
 
     def set_download_callback(self, callback: Callable[[], None]) -> None:
         """Set the callback function for scheduled downloads.
@@ -95,15 +96,9 @@ class DownloadScheduler:
         if cleanup_job and cleanup_job.next_run_time:
             self._next_cleanup_run = cleanup_job.next_run_time
 
-        logger.info(
-            f"Scheduler started - downloads every {interval_hours} hours. "
-            f"Next run: {self._next_run}"
-        )
+        logger.info(f"Scheduler started - downloads every {interval_hours} hours. Next run: {self._next_run}")
         if self._cleanup_callback:
-            logger.info(
-                f"Cleanup job - runs every {cleanup_interval_hours} hours. "
-                f"Next run: {self._next_cleanup_run}"
-            )
+            logger.info(f"Cleanup job - runs every {cleanup_interval_hours} hours. Next run: {self._next_cleanup_run}")
 
     def stop(self) -> None:
         """Stop the scheduler."""
@@ -167,7 +162,7 @@ class DownloadScheduler:
             "interval_hours": self._get_interval_hours(),
         }
 
-    def _get_interval_hours(self) -> Optional[float]:
+    def _get_interval_hours(self) -> float | None:
         """Get the current interval in hours."""
         job = self.scheduler.get_job("download_job")
         if job and hasattr(job.trigger, "interval"):

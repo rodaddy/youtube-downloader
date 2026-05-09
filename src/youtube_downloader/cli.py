@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 
 import click
-from loguru import logger
 
 from .app import create_app
 from .config import Settings
@@ -75,7 +74,7 @@ def _cleanup_old_process() -> None:
             try:
                 os.kill(old_pid, 0)
             except ProcessLookupError:
-                click.echo(f"✅ Previous instance stopped gracefully")
+                click.echo("✅ Previous instance stopped gracefully")
                 break
         else:
             # Still alive after 5 seconds -- force kill

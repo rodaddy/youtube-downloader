@@ -6,7 +6,7 @@ to manage application settings from environment variables and .env files.
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from loguru import logger
 from pydantic import Field, field_validator
@@ -76,25 +76,25 @@ class Settings(BaseSettings):
     debug: bool = Field(default=True, description="Enable debug mode")
 
     # Plex integration settings (optional)
-    plex_url: Optional[str] = Field(
+    plex_url: str | None = Field(
         default=None,
         description="Plex server URL (e.g., http://10.71.1.35:32400)",
     )
-    plex_token: Optional[str] = Field(
+    plex_token: str | None = Field(
         default=None,
         description="Plex authentication token",
     )
-    plex_library_id: Optional[int] = Field(
+    plex_library_id: int | None = Field(
         default=None,
         description="Plex library section ID for YouTube videos",
     )
 
     # Authentication settings (optional)
-    admin_username: Optional[str] = Field(
+    admin_username: str | None = Field(
         default=None,
         description="Admin username for web UI (leave blank to disable auth)",
     )
-    admin_password: Optional[str] = Field(
+    admin_password: str | None = Field(
         default=None,
         description="Admin password for web UI (leave blank to disable auth)",
     )
@@ -113,10 +113,7 @@ class Settings(BaseSettings):
     @classmethod
     def expand_download_dir(cls, v: str | Path) -> Path:
         """Expand user home directory and resolve relative paths."""
-        if isinstance(v, str):
-            path = Path(v).expanduser()
-        else:
-            path = v.expanduser()
+        path = Path(v).expanduser() if isinstance(v, str) else v.expanduser()
 
         # If relative path, make it relative to project root
         if not path.is_absolute():
@@ -148,9 +145,7 @@ class Settings(BaseSettings):
     @property
     def plex_enabled(self) -> bool:
         """Check if Plex integration is configured."""
-        return bool(
-            self.plex_url and self.plex_token and self.plex_library_id is not None
-        )
+        return bool(self.plex_url and self.plex_token and self.plex_library_id is not None)
 
     @property
     def auth_enabled(self) -> bool:
@@ -165,7 +160,7 @@ class Settings(BaseSettings):
         else:
             logger.info(f"⚙️  Creating directory: {self.download_dir}")
         self.download_dir.mkdir(parents=True, exist_ok=True)
-        logger.debug(f"⚙️  ENSURE_DOWNLOAD_DIR: Complete")
+        logger.debug("⚙️  ENSURE_DOWNLOAD_DIR: Complete")
 
     def update_runtime_config(
         self,
@@ -207,12 +202,12 @@ class Settings(BaseSettings):
         logger.debug(f"⚙️  Saving to {config_path}: {current}")
         with open(config_path, "w") as f:
             json.dump(current, f, indent=2)
-        logger.info(f"⚙️  UPDATE_RUNTIME_CONFIG: Complete")
+        logger.info("⚙️  UPDATE_RUNTIME_CONFIG: Complete")
 
     @classmethod
     def load_with_overrides(cls) -> "Settings":
         """Load settings with runtime overrides applied."""
-        logger.debug(f"⚙️  LOAD_WITH_OVERRIDES: Loading runtime config...")
+        logger.debug("⚙️  LOAD_WITH_OVERRIDES: Loading runtime config...")
         overrides = _load_runtime_overrides()
         logger.info(f"⚙️  LOAD_WITH_OVERRIDES: Applying overrides: {overrides}")
         settings = cls(**overrides)

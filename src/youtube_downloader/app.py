@@ -6,8 +6,18 @@ downloading YouTube videos and checking download status.
 
 import atexit
 import ipaddress
+import json
+import logging
+import os
+import re
+import shutil
+import signal
+import time
+from datetime import datetime
+from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+import requests
+from flask import Flask, jsonify, render_template, request, send_file
 from flask_httpauth import HTTPBasicAuth
 from loguru import logger
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -54,8 +64,7 @@ def create_app(settings: Settings | None = None) -> Flask:
     setup_logger(debug=settings.debug, log_dir=settings.log_dir)
 
     # Suppress Werkzeug HTTP access logs (too verbose)
-    import logging
-    logging.getLogger('werkzeug').setLevel(logging.WARNING)
+    logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
     logger.info("Starting YouTube Downloader")
     logger.debug(f"Download directory: {settings.download_dir}")
@@ -86,7 +95,6 @@ def create_app(settings: Settings | None = None) -> Flask:
     # Create scheduler (only in main process, not reloader)
     # When Flask debug mode is on, it creates a reloader process that would also start the scheduler
     # We only want the scheduler in the main process
-    import os
     is_reloader = os.environ.get("WERKZEUG_RUN_MAIN") == "true"
 
     if not settings.debug or is_reloader:
@@ -150,10 +158,12 @@ def create_app(settings: Settings | None = None) -> Flask:
     def get_channels() -> tuple:
         """Get list of configured channels."""
         channels = download_manager.load_channels()
-        return jsonify({
-            "channels": channels,
-            "videos_per_channel": settings.videos_per_channel,
-        })
+        return jsonify(
+            {
+                "channels": channels,
+                "videos_per_channel": settings.videos_per_channel,
+            }
+        )
 
     @app.route("/api/channels", methods=["POST"])
     @auth.login_required
@@ -168,7 +178,10 @@ def create_app(settings: Settings | None = None) -> Flask:
             return jsonify({"error": "No channel URL provided"}), 400
 
         # Basic YouTube URL validation
-        if not ("youtube.com/@" in channel_url or "youtube.com/c/" in channel_url or "youtube.com/channel/" in channel_url):
+        is_valid_channel = (
+            "youtube.com/@" in channel_url or "youtube.com/c/" in channel_url or "youtube.com/channel/" in channel_url
+        )
+        if not is_valid_channel:
             return jsonify({"error": "Invalid YouTube channel URL"}), 400
 
         channels_file = settings.channels_file
@@ -250,18 +263,20 @@ def create_app(settings: Settings | None = None) -> Flask:
     def get_all_status() -> tuple:
         """Get status of all downloads."""
         downloads = download_manager.get_all_downloads()
-        return jsonify({
-            "downloads": {
-                dl_id: {
-                    "channel_url": dl.channel_url,
-                    "status": dl.status,
-                    "progress": dl.progress,
-                    "message": dl.message,
-                    "started_at": dl.started_at,
+        return jsonify(
+            {
+                "downloads": {
+                    dl_id: {
+                        "channel_url": dl.channel_url,
+                        "status": dl.status,
+                        "progress": dl.progress,
+                        "message": dl.message,
+                        "started_at": dl.started_at,
+                    }
+                    for dl_id, dl in downloads.items()
                 }
-                for dl_id, dl in downloads.items()
             }
-        })
+        )
 
     @app.route("/api/queue")
     @auth.login_required
@@ -278,15 +293,17 @@ def create_app(settings: Settings | None = None) -> Flask:
         if not download:
             return jsonify({"error": "Download not found"}), 404
 
-        return jsonify({
-            "id": download.id,
-            "channel_url": download.channel_url,
-            "status": download.status,
-            "progress": download.progress,
-            "message": download.message,
-            "output": download.output,
-            "started_at": download.started_at,
-        })
+        return jsonify(
+            {
+                "id": download.id,
+                "channel_url": download.channel_url,
+                "status": download.status,
+                "progress": download.progress,
+                "message": download.message,
+                "output": download.output,
+                "started_at": download.started_at,
+            }
+        )
 
     @app.route("/api/files")
     def list_files() -> tuple:
@@ -303,16 +320,16 @@ def create_app(settings: Settings | None = None) -> Flask:
                 for video_file in channel_dir.glob("*"):
                     if video_file.suffix in [".mp4", ".mkv", ".webm"]:
                         stat = video_file.stat()
-                        files.append({
-                            "name": video_file.name,
-                            "size": stat.st_size,
-                            "modified": stat.st_mtime,
-                        })
+                        files.append(
+                            {
+                                "name": video_file.name,
+                                "size": stat.st_size,
+                                "modified": stat.st_mtime,
+                            }
+                        )
 
                 if files:
-                    files_by_channel[channel_dir.name] = sorted(
-                        files, key=lambda x: x["modified"], reverse=True
-                    )
+                    files_by_channel[channel_dir.name] = sorted(files, key=lambda x: x["modified"], reverse=True)
 
         return jsonify({"files": files_by_channel})
 
@@ -339,10 +356,12 @@ def create_app(settings: Settings | None = None) -> Flask:
                 for v in videos
             ]
 
-        return jsonify({
-            "videos": videos_by_channel,
-            "stats": database.get_stats(),
-        })
+        return jsonify(
+            {
+                "videos": videos_by_channel,
+                "stats": database.get_stats(),
+            }
+        )
 
     @app.route("/api/videos/<video_id>", methods=["DELETE"])
     def delete_video(video_id: str) -> tuple:
@@ -353,10 +372,7 @@ def create_app(settings: Settings | None = None) -> Flask:
 
         # Block deletion of pinned videos
         if video.keep_forever:
-            return jsonify({
-                "error": "This video is pinned. Unpin it first to delete.",
-                "pinned": True
-            }), 403
+            return jsonify({"error": "This video is pinned. Unpin it first to delete.", "pinned": True}), 403
 
         success = database.delete_video(video_id, delete_file=True)
         if success:
@@ -395,12 +411,14 @@ def create_app(settings: Settings | None = None) -> Flask:
     def get_channel_settings(channel_url: str) -> tuple:
         """Get per-channel settings."""
         limit = database.get_channel_limit(channel_url)
-        return jsonify({
-            "channel_url": channel_url,
-            "video_limit": limit,
-            "using_default": limit is None,
-            "default_limit": settings.videos_per_channel,
-        })
+        return jsonify(
+            {
+                "channel_url": channel_url,
+                "video_limit": limit,
+                "using_default": limit is None,
+                "default_limit": settings.videos_per_channel,
+            }
+        )
 
     @app.route("/api/channels/<path:channel_url>/settings", methods=["PUT"])
     @auth.login_required
@@ -416,19 +434,23 @@ def create_app(settings: Settings | None = None) -> Flask:
                 return jsonify({"error": "Video limit must be positive"}), 400
 
             database.set_channel_limit(channel_url, video_limit)
-            return jsonify({
-                "message": "Channel settings updated",
-                "channel_url": channel_url,
-                "video_limit": video_limit,
-            })
+            return jsonify(
+                {
+                    "message": "Channel settings updated",
+                    "channel_url": channel_url,
+                    "video_limit": video_limit,
+                }
+            )
         else:
             # Delete custom limit (revert to default)
             database.delete_channel_limit(channel_url)
-            return jsonify({
-                "message": "Reverted to default limit",
-                "channel_url": channel_url,
-                "video_limit": settings.videos_per_channel,
-            })
+            return jsonify(
+                {
+                    "message": "Reverted to default limit",
+                    "channel_url": channel_url,
+                    "video_limit": settings.videos_per_channel,
+                }
+            )
 
     @app.route("/api/scheduler")
     def get_scheduler_status() -> tuple:
@@ -444,14 +466,16 @@ def create_app(settings: Settings | None = None) -> Flask:
     @app.route("/api/stats")
     def get_stats() -> tuple:
         """Get database and scheduler statistics."""
-        return jsonify({
-            "database": database.get_stats(),
-            "scheduler": scheduler.get_status(),
-            "settings": {
-                "videos_per_channel": settings.videos_per_channel,
-                "download_dir": str(settings.download_dir),
-            },
-        })
+        return jsonify(
+            {
+                "database": database.get_stats(),
+                "scheduler": scheduler.get_status(),
+                "settings": {
+                    "videos_per_channel": settings.videos_per_channel,
+                    "download_dir": str(settings.download_dir),
+                },
+            }
+        )
 
     @app.route("/api/scan", methods=["POST"])
     def scan_existing() -> tuple:
@@ -461,11 +485,13 @@ def create_app(settings: Settings | None = None) -> Flask:
             orphans_removed = database.cleanup_orphans()
             # Then scan for new videos
             added_count = download_manager.scan_existing_videos()
-            return jsonify({
-                "message": f"Scan complete - added {added_count} videos, removed {orphans_removed} orphans",
-                "added_count": added_count,
-                "orphans_removed": orphans_removed,
-            })
+            return jsonify(
+                {
+                    "message": f"Scan complete - added {added_count} videos, removed {orphans_removed} orphans",
+                    "added_count": added_count,
+                    "orphans_removed": orphans_removed,
+                }
+            )
         except Exception as e:
             logger.exception(f"Scan failed: {e}")
             return jsonify({"error": str(e)}), 500
@@ -475,10 +501,12 @@ def create_app(settings: Settings | None = None) -> Flask:
         """Remove database entries for files that no longer exist."""
         try:
             removed = database.cleanup_orphans()
-            return jsonify({
-                "message": f"Cleanup complete - removed {removed} orphan entries",
-                "removed": removed,
-            })
+            return jsonify(
+                {
+                    "message": f"Cleanup complete - removed {removed} orphan entries",
+                    "removed": removed,
+                }
+            )
         except Exception as e:
             logger.exception(f"Cleanup failed: {e}")
             return jsonify({"error": str(e)}), 500
@@ -489,10 +517,7 @@ def create_app(settings: Settings | None = None) -> Flask:
         try:
             logger.info("Manual directory structure enforcement triggered")
             download_manager._enforce_directory_structure(None)
-            return jsonify({
-                "message": "Directory structure enforcement complete",
-                "status": "success"
-            })
+            return jsonify({"message": "Directory structure enforcement complete", "status": "success"})
         except Exception as e:
             logger.exception(f"Directory structure enforcement failed: {e}")
             return jsonify({"error": str(e)}), 500
@@ -502,16 +527,13 @@ def create_app(settings: Settings | None = None) -> Flask:
         """Fix file modification times to match upload dates (for Plex release date)."""
         try:
             logger.info("Fixing file modification times for all videos")
-            from datetime import datetime
-            import os
-            import json
 
             fixed_count = 0
             error_count = 0
 
             # Scan all channel directories
             for channel_dir in settings.download_dir.iterdir():
-                if not channel_dir.is_dir() or channel_dir.name.startswith('.'):
+                if not channel_dir.is_dir() or channel_dir.name.startswith("."):
                     continue
 
                 # Scan video folders
@@ -550,12 +572,14 @@ def create_app(settings: Settings | None = None) -> Flask:
 
             logger.info(f"✅ Fixed {fixed_count} video folders, {error_count} errors")
 
-            return jsonify({
-                "message": f"Fixed file dates for {fixed_count} videos",
-                "fixed": fixed_count,
-                "errors": error_count,
-                "status": "success"
-            })
+            return jsonify(
+                {
+                    "message": f"Fixed file dates for {fixed_count} videos",
+                    "fixed": fixed_count,
+                    "errors": error_count,
+                    "status": "success",
+                }
+            )
 
         except Exception as e:
             logger.exception(f"Date fixing failed: {e}")
@@ -568,15 +592,11 @@ def create_app(settings: Settings | None = None) -> Flask:
             return jsonify({"error": "Plex integration not configured"}), 400
 
         try:
-            from datetime import datetime
-            import xml.etree.ElementTree as ET
-            import re
-            from pathlib import Path
-
             logger.info("Fixing Plex originallyAvailableAt dates")
 
             # Get all items from Plex
             from youtube_downloader.plex import PlexIntegration
+
             plex = PlexIntegration(settings.plex_url, settings.plex_token, settings.plex_library_id)
             items = plex.get_all_items()
 
@@ -609,8 +629,7 @@ def create_app(settings: Settings | None = None) -> Flask:
                     # Update Plex metadata via API
                     # PUT /library/metadata/{ratingKey}?originallyAvailableAt.value=YYYY-MM-DD
                     response = plex._put(
-                        f"/library/metadata/{rating_key}",
-                        params={"originallyAvailableAt.value": date_formatted}
+                        f"/library/metadata/{rating_key}", params={"originallyAvailableAt.value": date_formatted}
                     )
 
                     if response.status_code == 200:
@@ -626,12 +645,14 @@ def create_app(settings: Settings | None = None) -> Flask:
 
             logger.info(f"✅ Fixed {fixed_count} Plex dates, {skipped_count} skipped")
 
-            return jsonify({
-                "message": f"Fixed Plex dates for {fixed_count} videos",
-                "fixed": fixed_count,
-                "skipped": skipped_count,
-                "status": "success"
-            })
+            return jsonify(
+                {
+                    "message": f"Fixed Plex dates for {fixed_count} videos",
+                    "fixed": fixed_count,
+                    "skipped": skipped_count,
+                    "status": "success",
+                }
+            )
 
         except Exception as e:
             logger.exception(f"Plex date fixing failed: {e}")
@@ -645,7 +666,6 @@ def create_app(settings: Settings | None = None) -> Flask:
 
         try:
             from youtube_downloader.plex import PlexIntegration
-            from pathlib import Path
 
             logger.info("Creating channel collections in Plex")
 
@@ -701,10 +721,7 @@ def create_app(settings: Settings | None = None) -> Flask:
 
                     if not collection:
                         # Create new collection WITH items (required by Plex)
-                        collection = plex.library.createCollection(
-                            title=channel_name,
-                            items=plex_items
-                        )
+                        collection = plex.library.createCollection(title=channel_name, items=plex_items)
                         logger.info(f"Created collection: {channel_name} with {len(plex_items)} items")
                         created += 1
                     else:
@@ -729,13 +746,15 @@ def create_app(settings: Settings | None = None) -> Flask:
 
             logger.info(f"✅ Created {created} collections, updated {updated}, {errors} errors")
 
-            return jsonify({
-                "message": f"Created {created} channel collections, updated {updated}",
-                "created": created,
-                "updated": updated,
-                "errors": errors,
-                "status": "success"
-            })
+            return jsonify(
+                {
+                    "message": f"Created {created} channel collections, updated {updated}",
+                    "created": created,
+                    "updated": updated,
+                    "errors": errors,
+                    "status": "success",
+                }
+            )
 
         except Exception as e:
             logger.exception(f"Collection creation failed: {e}")
@@ -745,10 +764,6 @@ def create_app(settings: Settings | None = None) -> Flask:
     def download_channel_posters() -> tuple:
         """Download YouTube channel avatars and save as poster.jpg in channel folders."""
         try:
-            import json
-            import requests
-            from pathlib import Path
-
             logger.info("Downloading YouTube channel avatars")
 
             downloaded = 0
@@ -757,7 +772,7 @@ def create_app(settings: Settings | None = None) -> Flask:
 
             # Scan all channel directories
             for channel_dir in settings.download_dir.iterdir():
-                if not channel_dir.is_dir() or channel_dir.name.startswith('.'):
+                if not channel_dir.is_dir() or channel_dir.name.startswith("."):
                     continue
 
                 # Check if poster already exists
@@ -798,13 +813,14 @@ def create_app(settings: Settings | None = None) -> Flask:
                     # Fetch channel page to extract avatar URL
                     # YouTube channel avatars are in og:image meta tag
                     try:
-                        response = requests.get(channel_url, timeout=10, headers={
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                        })
+                        response = requests.get(
+                            channel_url,
+                            timeout=10,
+                            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                        )
                         response.raise_for_status()
 
                         # Extract og:image from HTML (channel avatar)
-                        import re
                         og_image_match = re.search(r'<meta property="og:image" content="([^"]+)"', response.text)
 
                         if not og_image_match:
@@ -838,17 +854,20 @@ def create_app(settings: Settings | None = None) -> Flask:
             # Trigger Plex refresh to pick up new posters
             if settings.plex_enabled and downloaded > 0:
                 from youtube_downloader.plex import PlexIntegration
+
                 plex = PlexIntegration(settings.plex_url, settings.plex_token, settings.plex_library_id)
                 plex.refresh_library()
                 logger.info("Triggered Plex library refresh")
 
-            return jsonify({
-                "message": f"Downloaded {downloaded} channel avatars",
-                "downloaded": downloaded,
-                "skipped": skipped,
-                "errors": errors,
-                "status": "success"
-            })
+            return jsonify(
+                {
+                    "message": f"Downloaded {downloaded} channel avatars",
+                    "downloaded": downloaded,
+                    "skipped": skipped,
+                    "errors": errors,
+                    "status": "success",
+                }
+            )
 
         except Exception as e:
             logger.exception(f"Channel poster download failed: {e}")
@@ -877,12 +896,14 @@ def create_app(settings: Settings | None = None) -> Flask:
                 f"added {added_count} new videos"
             )
 
-            return jsonify({
-                "message": message,
-                "flat_cleanup": flat_cleanup,
-                "orphans_removed": orphans_removed,
-                "videos_added": added_count,
-            })
+            return jsonify(
+                {
+                    "message": message,
+                    "flat_cleanup": flat_cleanup,
+                    "orphans_removed": orphans_removed,
+                    "videos_added": added_count,
+                }
+            )
         except Exception as e:
             logger.exception(f"Sync failed: {e}")
             return jsonify({"error": str(e)}), 500
@@ -890,11 +911,13 @@ def create_app(settings: Settings | None = None) -> Flask:
     @app.route("/api/settings", methods=["GET"])
     def get_settings() -> tuple:
         """Get current application settings."""
-        return jsonify({
-            "download_dir": str(settings.download_dir),
-            "videos_per_channel": settings.videos_per_channel,
-            "max_quality": settings.max_quality,
-        })
+        return jsonify(
+            {
+                "download_dir": str(settings.download_dir),
+                "videos_per_channel": settings.videos_per_channel,
+                "max_quality": settings.max_quality,
+            }
+        )
 
     @app.route("/api/settings", methods=["POST"])
     def update_settings() -> tuple:
@@ -916,13 +939,18 @@ def create_app(settings: Settings | None = None) -> Flask:
             if download_dir:
                 settings.ensure_download_dir()
 
-            logger.info(f"Settings updated: download_dir={settings.download_dir}, videos_per_channel={settings.videos_per_channel}")
+            logger.info(
+                f"Settings updated: download_dir={settings.download_dir}, "
+                f"videos_per_channel={settings.videos_per_channel}"
+            )
 
-            return jsonify({
-                "message": "Settings updated",
-                "download_dir": str(settings.download_dir),
-                "videos_per_channel": settings.videos_per_channel,
-            })
+            return jsonify(
+                {
+                    "message": "Settings updated",
+                    "download_dir": str(settings.download_dir),
+                    "videos_per_channel": settings.videos_per_channel,
+                }
+            )
         except Exception as e:
             logger.exception(f"Failed to update settings: {e}")
             return jsonify({"error": str(e)}), 500
@@ -944,7 +972,6 @@ def create_app(settings: Settings | None = None) -> Flask:
             return jsonify({"error": "Invalid confirmation token"}), 400
 
         try:
-            import shutil
             deleted_files = 0
             deleted_dirs = 0
             errors = []
@@ -986,12 +1013,14 @@ def create_app(settings: Settings | None = None) -> Flask:
 
             logger.warning(f"NUKE executed: {message}")
 
-            return jsonify({
-                "message": message,
-                "deleted_files": deleted_files,
-                "deleted_dirs": deleted_dirs,
-                "errors": errors,
-            })
+            return jsonify(
+                {
+                    "message": message,
+                    "deleted_files": deleted_files,
+                    "deleted_dirs": deleted_dirs,
+                    "errors": errors,
+                }
+            )
 
         except Exception as e:
             logger.exception(f"Nuke operation failed: {e}")
@@ -1017,7 +1046,7 @@ def create_app(settings: Settings | None = None) -> Flask:
             search_term = request.args.get("search", "")
 
             # Read log file
-            with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+            with open(log_file, encoding="utf-8", errors="ignore") as f:
                 all_lines = f.readlines()
 
             # Get last N lines
@@ -1034,12 +1063,14 @@ def create_app(settings: Settings | None = None) -> Flask:
                     continue
                 filtered_lines.append(line.rstrip())
 
-            return jsonify({
-                "lines": filtered_lines,
-                "total_lines": len(all_lines),
-                "filtered_lines": len(filtered_lines),
-                "log_file": str(log_file),
-            })
+            return jsonify(
+                {
+                    "lines": filtered_lines,
+                    "total_lines": len(all_lines),
+                    "filtered_lines": len(filtered_lines),
+                    "log_file": str(log_file),
+                }
+            )
 
         except Exception as e:
             logger.exception(f"Failed to read logs: {e}")
@@ -1053,7 +1084,6 @@ def create_app(settings: Settings | None = None) -> Flask:
             if not log_file.exists():
                 return jsonify({"error": "Log file not found"}), 404
 
-            from flask import send_file
             return send_file(
                 log_file,
                 as_attachment=True,
@@ -1087,10 +1117,12 @@ def create_app(settings: Settings | None = None) -> Flask:
 
             logger.info(f"Log level changed to {level}")
 
-            return jsonify({
-                "message": f"Log level set to {level}",
-                "level": level,
-            })
+            return jsonify(
+                {
+                    "message": f"Log level set to {level}",
+                    "level": level,
+                }
+            )
 
         except Exception as e:
             logger.exception(f"Failed to set log level: {e}")
@@ -1104,34 +1136,23 @@ def create_app(settings: Settings | None = None) -> Flask:
         Note: This only works when running as a systemd service or with a process manager.
         In debug mode, use Ctrl+C and restart manually, or just save files for auto-reload.
         """
-        import os
-        import signal
-
         try:
             if settings.debug:
                 # In debug mode, trigger werkzeug reloader by touching a file
                 logger.warning("Restart requested in debug mode - triggering auto-reload")
                 # Touch the main app file to trigger reload
-                import time
                 app_file = Path(__file__)
                 os.utime(app_file, (time.time(), time.time()))
-                return jsonify({
-                    "message": "Debug mode: Auto-reload triggered. Server will restart momentarily."
-                })
+                return jsonify({"message": "Debug mode: Auto-reload triggered. Server will restart momentarily."})
             else:
                 # In production, send SIGHUP to trigger graceful restart (systemd handles this)
                 logger.warning("Restart requested - sending SIGHUP")
                 os.kill(os.getpid(), signal.SIGHUP)
-                return jsonify({
-                    "message": "Restart signal sent. Server will restart shortly."
-                })
+                return jsonify({"message": "Restart signal sent. Server will restart shortly."})
 
         except Exception as e:
             logger.exception(f"Failed to restart server: {e}")
-            return jsonify({
-                "error": str(e),
-                "note": "Manual restart required: Ctrl+C then re-run serve command"
-            }), 500
+            return jsonify({"error": str(e), "note": "Manual restart required: Ctrl+C then re-run serve command"}), 500
 
     @app.route("/api/cleanup/preview", methods=["POST"])
     @auth.login_required
@@ -1142,14 +1163,8 @@ def create_app(settings: Settings | None = None) -> Flask:
 
         try:
             logger.info(f"Cleanup preview requested (keep_count={keep_count})")
-            result = app.cleanup_manager.cleanup_keep_last_n(
-                keep_count=keep_count,
-                preview=True
-            )
-            logger.info(
-                f"Cleanup preview: {result['videos_to_delete']} videos, "
-                f"{result['space_to_free_gb']} GB"
-            )
+            result = app.cleanup_manager.cleanup_keep_last_n(keep_count=keep_count, preview=True)
+            logger.info(f"Cleanup preview: {result['videos_to_delete']} videos, {result['space_to_free_gb']} GB")
             return jsonify(result)
         except Exception as e:
             logger.exception(f"Cleanup preview failed: {e}")
@@ -1164,13 +1179,9 @@ def create_app(settings: Settings | None = None) -> Flask:
 
         try:
             logger.warning(f"Cleanup execution started (keep_count={keep_count})")
-            result = app.cleanup_manager.cleanup_keep_last_n(
-                keep_count=keep_count,
-                preview=False
-            )
+            result = app.cleanup_manager.cleanup_keep_last_n(keep_count=keep_count, preview=False)
             logger.warning(
-                f"Cleanup complete: {result['videos_deleted']} videos deleted, "
-                f"{result['space_freed_gb']} GB freed"
+                f"Cleanup complete: {result['videos_deleted']} videos deleted, {result['space_freed_gb']} GB freed"
             )
             return jsonify(result)
         except Exception as e:

@@ -1,6 +1,6 @@
 """YouTube Downloader - Production-grade YouTube channel downloader."""
 
-from importlib.metadata import version, PackageNotFoundError
+from importlib.metadata import PackageNotFoundError, version
 
 try:
     __version__ = version("youtube-downloader")

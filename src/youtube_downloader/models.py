@@ -3,13 +3,13 @@
 This module defines Pydantic models for download tracking and status management.
 """
 
-from enum import Enum
+from enum import StrEnum
 from time import time
 
 from pydantic import BaseModel, Field
 
 
-class DownloadStatus(str, Enum):
+class DownloadStatus(StrEnum):
     """Status of a download job."""
 
     QUEUED = "queued"

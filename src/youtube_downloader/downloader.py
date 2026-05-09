@@ -4,6 +4,7 @@ This module provides the DownloadManager class that handles channel downloads
 using yt-dlp with proper logging and progress tracking.
 """
 
+import contextlib
 import json
 import queue
 import re
@@ -44,7 +45,7 @@ def normalize_channel_name(name: str) -> str:
         Normalized lowercase string with no separators
     """
     # Remove all common separators and convert to lowercase
-    normalized = re.sub(r'[_\s\-–—\|]', '', name.lower())
+    normalized = re.sub(r"[_\s\-–—\|]", "", name.lower())
     return normalized
 
 
@@ -68,31 +69,31 @@ def sanitize_name(name: str) -> str:
     # Remove emojis (Unicode ranges for emoji characters)
     emoji_pattern = re.compile(
         "["
-        "\U0001F600-\U0001F64F"  # emoticons
-        "\U0001F300-\U0001F5FF"  # symbols & pictographs
-        "\U0001F680-\U0001F6FF"  # transport & map symbols
-        "\U0001F700-\U0001F77F"  # alchemical symbols
-        "\U0001F780-\U0001F7FF"  # Geometric Shapes Extended
-        "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
-        "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
-        "\U0001FA00-\U0001FA6F"  # Chess Symbols
-        "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
-        "\U00002600-\U000026FF"  # Miscellaneous Symbols
-        "\U00002700-\U000027BF"  # Dingbats
-        "\U0000FE00-\U0000FE0F"  # Variation Selectors
-        "\U0001F1E0-\U0001F1FF"  # Flags (iOS)
+        "\U0001f600-\U0001f64f"  # emoticons
+        "\U0001f300-\U0001f5ff"  # symbols & pictographs
+        "\U0001f680-\U0001f6ff"  # transport & map symbols
+        "\U0001f700-\U0001f77f"  # alchemical symbols
+        "\U0001f780-\U0001f7ff"  # Geometric Shapes Extended
+        "\U0001f800-\U0001f8ff"  # Supplemental Arrows-C
+        "\U0001f900-\U0001f9ff"  # Supplemental Symbols and Pictographs
+        "\U0001fa00-\U0001fa6f"  # Chess Symbols
+        "\U0001fa70-\U0001faff"  # Symbols and Pictographs Extended-A
+        "\U00002600-\U000026ff"  # Miscellaneous Symbols
+        "\U00002700-\U000027bf"  # Dingbats
+        "\U0000fe00-\U0000fe0f"  # Variation Selectors
+        "\U0001f1e0-\U0001f1ff"  # Flags (iOS)
         "]+",
-        flags=re.UNICODE
+        flags=re.UNICODE,
     )
-    clean = emoji_pattern.sub('', name)
+    clean = emoji_pattern.sub("", name)
     # Remove wide and narrow special characters (including / which breaks paths)
-    clean = re.sub(r'[：｜:|,!?\'\"""＂()（）/\\]', '', clean)
+    clean = re.sub(r'[：｜:|,!?\'\"""＂()（）/\\]', "", clean)
     # Replace spaces and dashes with underscores
-    clean = clean.replace(' ', '_').replace('-', '_')
+    clean = clean.replace(" ", "_").replace("-", "_")
     # Collapse multiple underscores
-    clean = re.sub(r'_+', '_', clean)
+    clean = re.sub(r"_+", "_", clean)
     # Remove leading/trailing underscores
-    clean = clean.strip('_')
+    clean = clean.strip("_")
     logger.debug(f"🧹 SANITIZE_NAME: output='{clean}'")
     return clean
 
@@ -124,14 +125,14 @@ def strip_redundant_prefixes(title: str) -> str:
     """
     original = title
     for pattern in REDUNDANT_TITLE_PREFIXES:
-        title = re.sub(pattern, '', title, flags=re.IGNORECASE)
+        title = re.sub(pattern, "", title, flags=re.IGNORECASE)
         if title != original:
             logger.debug(f"🔤 Stripped prefix: '{original}' → '{title}'")
             break  # Only strip one prefix
     return title
 
 
-def letterbox_thumbnail(thumbnail_path: Path, target_aspect: float = 2/3) -> bool:
+def letterbox_thumbnail(thumbnail_path: Path, target_aspect: float = 2 / 3) -> bool:
     """Convert 16:9 YouTube thumbnail to 2:3 Plex poster format with letterboxing.
 
     Adds black bars at top and bottom to preserve the full thumbnail image
@@ -156,10 +157,14 @@ def letterbox_thumbnail(thumbnail_path: Path, target_aspect: float = 2/3) -> boo
             [
                 "magick",
                 str(thumbnail_path),
-                "-resize", "1000x",  # Resize to 1000px width
-                "-background", "black",
-                "-gravity", "center",
-                "-extent", "1000x1500",  # Extend to 2:3 poster format
+                "-resize",
+                "1000x",  # Resize to 1000px width
+                "-background",
+                "black",
+                "-gravity",
+                "center",
+                "-extent",
+                "1000x1500",  # Extend to 2:3 poster format
                 str(thumbnail_path),  # Overwrite original
             ],
             capture_output=True,
@@ -229,15 +234,15 @@ def rename_downloaded_files(original_dir: Path, info_json_path: Path) -> Path:
         with open(info_json_path) as f:
             metadata = json.load(f)
 
-        upload_date = metadata.get('upload_date', '99999999')
-        video_id = metadata.get('id', 'unknown')
+        upload_date = metadata.get("upload_date", "99999999")
+        video_id = metadata.get("id", "unknown")
 
         logger.info(f"   Upload Date: {upload_date}, Video ID: {video_id}")
 
         # Find video file (.mp4, .mkv, .webm, etc.)
         video_file = None
-        for ext in ['.mp4', '.mkv', '.webm', '.m4a']:
-            potential = list(original_dir.glob(f'*{ext}'))
+        for ext in [".mp4", ".mkv", ".webm", ".m4a"]:
+            potential = list(original_dir.glob(f"*{ext}"))
             if potential:
                 video_file = potential[0]
                 break
@@ -255,7 +260,7 @@ def rename_downloaded_files(original_dir: Path, info_json_path: Path) -> Path:
 
         # Create new folder name: YYYYMMDD_sanitized_title
         # Remove the [video_id] suffix first
-        title_without_id = re.sub(r'\s*\[[\w-]+\]$', '', original_folder_name)
+        title_without_id = re.sub(r"\s*\[[\w-]+\]$", "", original_folder_name)
         # Strip redundant prefixes like "Arsenal latest news - " before sanitizing
         title_clean = strip_redundant_prefixes(title_without_id)
         sanitized_title = sanitize_name(title_clean)
@@ -278,11 +283,11 @@ def rename_downloaded_files(original_dir: Path, info_json_path: Path) -> Path:
         if channel_dir != new_channel_dir:
             logger.info(f"📁 RENAME CHANNEL: {channel_dir} → {new_channel_dir}")
             if new_channel_dir.exists():
-                logger.info(f"   Channel already exists, using it")
+                logger.info("   Channel already exists, using it")
                 # Target exists, update original_dir to point to video folder in new channel location
                 original_dir = new_channel_dir / original_dir.name
             else:
-                logger.info(f"   Executing rename...")
+                logger.info("   Executing rename...")
                 channel_dir.rename(new_channel_dir)
                 channel_dir = new_channel_dir
                 # Update original_dir to point to video folder in renamed channel
@@ -293,7 +298,7 @@ def rename_downloaded_files(original_dir: Path, info_json_path: Path) -> Path:
         if original_dir != new_video_dir:
             logger.info(f"📁 RENAME VIDEO FOLDER: {original_dir} → {new_video_dir}")
             if new_video_dir.exists():
-                logger.warning(f"   Target already exists, merging files")
+                logger.warning("   Target already exists, merging files")
                 # Move files to existing folder
                 for file in original_dir.iterdir():
                     target = new_video_dir / file.name
@@ -305,7 +310,7 @@ def rename_downloaded_files(original_dir: Path, info_json_path: Path) -> Path:
                     logger.debug(f"   Removing empty folder: {original_dir}")
                     original_dir.rmdir()
             else:
-                logger.info(f"   Executing rename...")
+                logger.info("   Executing rename...")
                 original_dir.rename(new_video_dir)
 
         # Rename all files inside to match folder name
@@ -314,7 +319,7 @@ def rename_downloaded_files(original_dir: Path, info_json_path: Path) -> Path:
 
         for file in new_video_dir.iterdir():
             if file.is_file():
-                ext = ''.join(file.suffixes)  # Handle .info.json, etc.
+                ext = "".join(file.suffixes)  # Handle .info.json, etc.
                 new_name = f"{new_folder_name}{ext}"
                 new_path = new_video_dir / new_name
 
@@ -322,7 +327,7 @@ def rename_downloaded_files(original_dir: Path, info_json_path: Path) -> Path:
                     logger.debug(f"Renaming file: {file.name} → {new_name}")
                     file.rename(new_path)
 
-                    if file.suffix in ['.mp4', '.mkv', '.webm', '.m4a']:
+                    if file.suffix in [".mp4", ".mkv", ".webm", ".m4a"]:
                         new_video_file = new_path
 
         logger.info(f"✅ Sanitized: {new_video_file.relative_to(new_channel_dir.parent)}")
@@ -331,6 +336,8 @@ def rename_downloaded_files(original_dir: Path, info_json_path: Path) -> Path:
     except Exception as e:
         logger.error(f"Failed to rename files in {original_dir}: {e}")
         return original_dir / "error.mp4"
+
+
 TIMEOUT_SECONDS = 600  # 10 minutes per attempt
 
 # Queue configuration
@@ -419,9 +426,7 @@ class DownloadManager:
         plex: Optional Plex integration for thumbnail uploads
     """
 
-    def __init__(
-        self, settings: Settings, database: Optional["Database"] = None
-    ) -> None:
+    def __init__(self, settings: Settings, database: Optional["Database"] = None) -> None:
         """Initialize the download manager.
 
         Args:
@@ -448,10 +453,12 @@ class DownloadManager:
             daemon=True,
         )
         self._queue_worker_thread.start()
-        logger.info(f"Download queue initialized (max concurrent: {MAX_CONCURRENT_DOWNLOADS}, delay: {DOWNLOAD_START_DELAY}s)")
+        logger.info(
+            f"Download queue initialized (max concurrent: {MAX_CONCURRENT_DOWNLOADS}, delay: {DOWNLOAD_START_DELAY}s)"
+        )
 
         # Initialize Plex integration if configured
-        self.plex: Optional[PlexIntegration] = None
+        self.plex: PlexIntegration | None = None
         if settings.plex_enabled:
             try:
                 self.plex = PlexIntegration(
@@ -495,10 +502,8 @@ class DownloadManager:
                 continue
             except Exception as e:
                 logger.exception(f"Queue worker error: {e}")
-                try:
+                with contextlib.suppress(ValueError):
                     self._download_queue.task_done()
-                except ValueError:
-                    pass
 
         logger.info("Download queue worker stopped")
 
@@ -573,7 +578,7 @@ class DownloadManager:
     def _save_channel_mappings(self) -> None:
         """Save channel name mappings to JSON file."""
         try:
-            with open(self._mappings_file, 'w') as f:
+            with open(self._mappings_file, "w") as f:
                 json.dump(self._channel_mappings, f, indent=2)
             logger.debug(f"📝 Saved channel mappings to {self._mappings_file}")
         except Exception as e:
@@ -598,7 +603,7 @@ class DownloadManager:
     def _save_failed_videos(self) -> None:
         """Save failed videos tracking to JSON file."""
         try:
-            with open(self._failed_videos_file, 'w') as f:
+            with open(self._failed_videos_file, "w") as f:
                 json.dump(self._failed_videos, f, indent=2)
             logger.debug(f"📝 Saved failed videos to {self._failed_videos_file}")
         except Exception as e:
@@ -619,7 +624,8 @@ class DownloadManager:
 
         # Find failed videos for this channel
         channel_failed = {
-            vid: data for vid, data in self._failed_videos.items()
+            vid: data
+            for vid, data in self._failed_videos.items()
             if data.get("channel_url") == channel_url and data.get("retry_count", 0) < MAX_RETRIES
         }
 
@@ -644,10 +650,7 @@ class DownloadManager:
 
                 # Download this specific video by ID
                 output_template = str(
-                    staging_dir
-                    / "%(uploader)s"
-                    / "%(title)s [%(id)s]"
-                    / "%(title)s [%(id)s].%(ext)s"
+                    staging_dir / "%(uploader)s" / "%(title)s [%(id)s]" / "%(title)s [%(id)s].%(ext)s"
                 )
 
                 cmd = [
@@ -710,6 +713,7 @@ class DownloadManager:
 
                 # Clean up staging directory
                 import shutil
+
                 if staging_dir.exists():
                     shutil.rmtree(staging_dir)
 
@@ -737,8 +741,9 @@ class DownloadManager:
 
         # Scan all directories (exclude staging, hidden, and date-based folders)
         channel_dirs = [
-            d for d in self.settings.download_dir.iterdir()
-            if d.is_dir() and not d.name.startswith('.') and not d.name.startswith('202')
+            d
+            for d in self.settings.download_dir.iterdir()
+            if d.is_dir() and not d.name.startswith(".") and not d.name.startswith("202")
         ]
 
         # Group directories by normalized name
@@ -772,10 +777,7 @@ class DownloadManager:
                 logger.info(f"📦 Consolidating {variant_dir.name} → {canonical.name}")
 
                 # Find all video folders in variant (YYYYMMDD_Title pattern)
-                video_folders = [
-                    d for d in variant_dir.iterdir()
-                    if d.is_dir() and re.match(r'^\d{8}_', d.name)
-                ]
+                video_folders = [d for d in variant_dir.iterdir() if d.is_dir() and re.match(r"^\d{8}_", d.name)]
 
                 for video_folder in video_folders:
                     dest_folder = canonical / video_folder.name
@@ -786,6 +788,7 @@ class DownloadManager:
 
                     # Move the entire video folder
                     import shutil
+
                     try:
                         shutil.move(str(video_folder), str(dest_folder))
                         logger.info(f"   ✅ Moved {video_folder.name}")
@@ -794,13 +797,15 @@ class DownloadManager:
 
                 # Check if variant directory is now empty (except metadata folders)
                 remaining_items = [
-                    item for item in variant_dir.iterdir()
-                    if not ('_-_Videos' in item.name or '_-_Live' in item.name or '_-_Shorts' in item.name)
+                    item
+                    for item in variant_dir.iterdir()
+                    if not ("_-_Videos" in item.name or "_-_Live" in item.name or "_-_Shorts" in item.name)
                 ]
 
                 if not remaining_items:
                     logger.info(f"🧹 Deleting empty variant directory: {variant_dir.name}")
                     import shutil
+
                     try:
                         shutil.rmtree(variant_dir)
                     except Exception as e:
@@ -831,14 +836,17 @@ class DownloadManager:
         """
         logger.info("🧹 Cleaning up orphaned playlist metadata folders...")
 
-        metadata_folders = list(self.settings.download_dir.rglob("*_-_Videos*")) + \
-                          list(self.settings.download_dir.rglob("*_-_Live*")) + \
-                          list(self.settings.download_dir.rglob("*_-_Shorts*"))
+        metadata_folders = (
+            list(self.settings.download_dir.rglob("*_-_Videos*"))
+            + list(self.settings.download_dir.rglob("*_-_Live*"))
+            + list(self.settings.download_dir.rglob("*_-_Shorts*"))
+        )
 
         for folder in metadata_folders:
             if folder.is_dir():
                 logger.info(f"🗑️  Deleting metadata folder: {folder.relative_to(self.settings.download_dir)}")
                 import shutil
+
                 try:
                     shutil.rmtree(folder)
                 except Exception as e:
@@ -945,6 +953,7 @@ class DownloadManager:
             for info_file in self.settings.download_dir.rglob("*.info.json"):
                 try:
                     import json
+
                     with open(info_file) as f:
                         metadata = json.load(f)
                         video_id = metadata.get("id")
@@ -1009,11 +1018,11 @@ class DownloadManager:
                     continue
 
                 # Skip special directories
-                if item.name.startswith('.') or item.name == 'channel_name_mappings.json':
+                if item.name.startswith(".") or item.name == "channel_name_mappings.json":
                     continue
 
                 # Check if it matches YYYYMMDD_* pattern (orphaned video)
-                if re.match(r'^\d{8}_', item.name):
+                if re.match(r"^\d{8}_", item.name):
                     logger.info(f"📦 Found orphaned video: {item.name}")
 
                     # Try to find .info.json to determine channel
@@ -1025,6 +1034,7 @@ class DownloadManager:
 
                     try:
                         import json
+
                         with open(info_files[0]) as f:
                             metadata = json.load(f)
 
@@ -1048,6 +1058,7 @@ class DownloadManager:
                             continue
 
                         import shutil
+
                         shutil.move(str(item), str(dest_path))
                         logger.info(f"   ✅ Moved to {channel_name}/{item.name}")
                         moved_count += 1
@@ -1082,7 +1093,7 @@ class DownloadManager:
                     continue
 
                 # Skip special directories
-                if channel_dir.name.startswith('.') or channel_dir.name == 'channel_name_mappings.json':
+                if channel_dir.name.startswith(".") or channel_dir.name == "channel_name_mappings.json":
                     continue
 
                 # Scan video folders inside channel
@@ -1091,11 +1102,11 @@ class DownloadManager:
                         continue
 
                     # Check if already has YYYYMMDD_ prefix
-                    if re.match(r'^\d{8}_', video_folder.name):
+                    if re.match(r"^\d{8}_", video_folder.name):
                         continue  # Already correct format
 
                     # Skip Season folders (Plex TV structure)
-                    if re.match(r'^Season \d+$', video_folder.name):
+                    if re.match(r"^Season \d+$", video_folder.name):
                         continue  # Season containers, not video folders
 
                     logger.info(f"📦 Found incorrectly named folder: {channel_dir.name}/{video_folder.name}")
@@ -1104,7 +1115,7 @@ class DownloadManager:
                     info_files = list(video_folder.glob("*.info.json"))
 
                     if not info_files:
-                        logger.warning(f"   ⚠️  No .info.json found, skipping")
+                        logger.warning("   ⚠️  No .info.json found, skipping")
                         continue
 
                     try:
@@ -1117,7 +1128,7 @@ class DownloadManager:
                         # Get upload date
                         upload_date_str = metadata.get("upload_date")
                         if not upload_date_str:
-                            logger.warning(f"   ⚠️  No upload_date in metadata, skipping")
+                            logger.warning("   ⚠️  No upload_date in metadata, skipping")
                             continue
 
                         # Parse upload date (format: YYYYMMDD)
@@ -1127,7 +1138,7 @@ class DownloadManager:
                         # Get title
                         title = metadata.get("title", "")
                         if not title:
-                            logger.warning(f"   ⚠️  No title in metadata, skipping")
+                            logger.warning("   ⚠️  No title in metadata, skipping")
                             continue
 
                         # Strip redundant prefixes and sanitize title
@@ -1151,6 +1162,7 @@ class DownloadManager:
                         # Set file modification times to match upload_date for Plex
                         try:
                             import os
+
                             upload_timestamp = upload_date.replace(hour=12).timestamp()
 
                             # Set mtime for all files in the renamed folder
@@ -1212,18 +1224,15 @@ class DownloadManager:
                 # Download to staging area - yt-dlp can create whatever structure it wants
                 # We'll clean it up and move to final location after download completes
                 output_template = str(
-                    staging_dir
-                    / "%(uploader)s"
-                    / "%(title)s [%(id)s]"
-                    / "%(title)s [%(id)s].%(ext)s"
+                    staging_dir / "%(uploader)s" / "%(title)s [%(id)s]" / "%(title)s [%(id)s].%(ext)s"
                 )
 
                 logger.info(f"📝 OUTPUT_TEMPLATE = {output_template}")
-                logger.debug(f"📝 Template breakdown:")
+                logger.debug("📝 Template breakdown:")
                 logger.debug(f"   - Staging dir: {staging_dir}")
-                logger.debug(f"   - Channel folder: %(uploader)s (from yt-dlp metadata)")
-                logger.debug(f"   - Video folder: %(title)s [%(id)s] (from yt-dlp metadata)")
-                logger.debug(f"   - File: %(title)s [%(id)s].%(ext)s (from yt-dlp metadata)")
+                logger.debug("   - Channel folder: %(uploader)s (from yt-dlp metadata)")
+                logger.debug("   - Video folder: %(title)s [%(id)s] (from yt-dlp metadata)")
+                logger.debug("   - File: %(title)s [%(id)s].%(ext)s (from yt-dlp metadata)")
 
                 # Select quality format string
                 if quality == "best":
@@ -1248,7 +1257,9 @@ class DownloadManager:
                     str(self.settings.archive_file),  # Skip videos already downloaded
                     "--output",
                     output_template,
-                    "--print-to-file", "after_move:filepath" , str(self.settings.download_dir / ".last_download.txt"),  # Track what was downloaded
+                    "--print-to-file",
+                    "after_move:filepath",
+                    str(self.settings.download_dir / ".last_download.txt"),
                     # Content filtering
                     "--match-filter",
                     "duration>60&!is_live",  # Skip shorts (<60s) and live streams (no spaces around &)
@@ -1278,9 +1289,7 @@ class DownloadManager:
                     f"{channel_url}/videos",  # /videos suffix = download ONLY from Videos tab
                 ]
 
-                logger.info(
-                    f"[{channel_name}] Download attempt {attempt}/{MAX_RETRIES} (ID: {download_id})"
-                )
+                logger.info(f"[{channel_name}] Download attempt {attempt}/{MAX_RETRIES} (ID: {download_id})")
                 logger.debug(f"Command: {' '.join(cmd)}")
 
                 process = subprocess.Popen(
@@ -1298,10 +1307,7 @@ class DownloadManager:
                     download.output.append(line)
 
                     # Log important lines
-                    if any(
-                        keyword in line
-                        for keyword in ["ERROR", "WARNING", "[download]", "Downloading"]
-                    ):
+                    if any(keyword in line for keyword in ["ERROR", "WARNING", "[download]", "Downloading"]):
                         logger.debug(f"[{channel_name}] {line}")
 
                     # Parse progress
@@ -1318,13 +1324,9 @@ class DownloadManager:
 
                     # Timeout check
                     if time() - start_time > TIMEOUT_SECONDS:
-                        logger.error(
-                            f"[{channel_name}] Download timeout after {TIMEOUT_SECONDS}s"
-                        )
+                        logger.error(f"[{channel_name}] Download timeout after {TIMEOUT_SECONDS}s")
                         process.kill()
-                        raise TimeoutError(
-                            f"Download exceeded {TIMEOUT_SECONDS}s timeout"
-                        )
+                        raise TimeoutError(f"Download exceeded {TIMEOUT_SECONDS}s timeout")
 
                 process.wait()
                 logger.info(f"✅ Process completed with return code: {process.returncode}")
@@ -1336,26 +1338,22 @@ class DownloadManager:
 
                     # Run middleware to enforce directory structure
                     # This moves files from staging, enforces naming, and cleans up old videos
-                    logger.info(f"🔧 Running directory structure enforcement")
+                    logger.info("🔧 Running directory structure enforcement")
                     self._enforce_directory_structure(channel_url)
 
                     # Retry failed videos for this channel
-                    logger.info(f"🔄 Checking for failed videos to retry")
+                    logger.info("🔄 Checking for failed videos to retry")
                     self._retry_failed_videos(channel_url)
 
                     # Upload thumbnails and metadata to Plex if integration is enabled
                     if self.plex:
                         try:
                             # Upload thumbnails
-                            uploaded_thumbs = self.plex.sync_thumbnails(
-                                self.settings.download_dir
-                            )
+                            uploaded_thumbs = self.plex.sync_thumbnails(self.settings.download_dir)
                             logger.info(f"Plex sync: uploaded {uploaded_thumbs} thumbnails")
 
                             # Upload metadata (title, summary, date)
-                            uploaded_meta = self.plex.sync_metadata(
-                                self.settings.download_dir
-                            )
+                            uploaded_meta = self.plex.sync_metadata(self.settings.download_dir)
                             logger.info(f"Plex sync: uploaded metadata for {uploaded_meta} items")
                         except Exception as e:
                             logger.warning(f"Plex sync failed: {e}")
@@ -1369,21 +1367,15 @@ class DownloadManager:
 
                     # Log last 15 lines of output for debugging
                     last_lines = download.output[-15:] if len(download.output) > 15 else download.output
-                    logger.error(
-                        f"[{channel_name}] yt-dlp failed with exit code {process.returncode}"
-                    )
+                    logger.error(f"[{channel_name}] yt-dlp failed with exit code {process.returncode}")
                     logger.error(f"[{channel_name}] Error: {error_msg}")
-                    logger.error(
-                        f"[{channel_name}] Last output lines:\n" + "\n".join(last_lines)
-                    )
+                    logger.error(f"[{channel_name}] Last output lines:\n" + "\n".join(last_lines))
 
                     # Decide whether to retry
                     if not is_retryable or attempt == MAX_RETRIES:
                         download.status = DownloadStatus.ERROR
                         download.message = error_msg
-                        logger.error(
-                            f"[{channel_name}] Permanent failure: {error_msg}"
-                        )
+                        logger.error(f"[{channel_name}] Permanent failure: {error_msg}")
                         return  # Give up
 
                     # Exponential backoff before retry
@@ -1403,9 +1395,7 @@ class DownloadManager:
                 else:
                     retry_delay = RETRY_DELAY_BASE * (2 ** (attempt - 1))
                     download.message = f"Timeout - retry {attempt}/{MAX_RETRIES} in {retry_delay}s"
-                    logger.warning(
-                        f"[{channel_name}] Retrying after timeout in {retry_delay}s..."
-                    )
+                    logger.warning(f"[{channel_name}] Retrying after timeout in {retry_delay}s...")
                     time_module.sleep(retry_delay)
 
             except Exception as e:
@@ -1448,10 +1438,7 @@ class DownloadManager:
             }
         """
         queue_size = self._download_queue.qsize()
-        active_downloads = sum(
-            1 for d in self._downloads.values()
-            if d.status == DownloadStatus.DOWNLOADING
-        )
+        active_downloads = sum(1 for d in self._downloads.values() if d.status == DownloadStatus.DOWNLOADING)
 
         return {
             "queue_size": queue_size,
@@ -1490,6 +1477,7 @@ class DownloadManager:
 
                         # Clean up staging directory
                         import shutil
+
                         shutil.rmtree(staging_download)
                         logger.info(f"🧹 Cleaned up staging: {staging_download.name}")
                     except Exception as e:
@@ -1517,7 +1505,7 @@ class DownloadManager:
         # Step 8: Sync archive with filesystem (Option 4 hybrid approach)
         self._sync_archive_with_filesystem()
 
-        logger.info(f"✅ Directory structure enforcement complete")
+        logger.info("✅ Directory structure enforcement complete")
 
     def _move_from_staging(self, staging_dir: Path, channel_url: str) -> list[tuple[Path, Path, str]]:
         """Move downloaded videos from staging to final location with proper structure.
@@ -1546,19 +1534,19 @@ class DownloadManager:
                 with open(info_file) as f:
                     metadata = json.load(f)
 
-                video_id = metadata.get('id', '')
+                video_id = metadata.get("id", "")
                 if not video_id:
                     logger.warning(f"📦 No video ID in {info_file}, skipping")
                     continue
 
-                upload_date = metadata.get('upload_date', '99999999')
-                uploader = metadata.get('uploader', 'Unknown_Channel')
-                title = metadata.get('title', 'Unknown_Title')
+                upload_date = metadata.get("upload_date", "99999999")
+                uploader = metadata.get("uploader", "Unknown_Channel")
+                title = metadata.get("title", "Unknown_Title")
 
                 # Find the actual video file
                 video_file = None
-                for ext in ['.mp4', '.mkv', '.webm', '.m4a']:
-                    base = info_file.with_suffix('').with_suffix('')  # Remove .info.json
+                for ext in [".mp4", ".mkv", ".webm", ".m4a"]:
+                    base = info_file.with_suffix("").with_suffix("")  # Remove .info.json
                     potential = base.with_suffix(ext)
                     if potential.exists():
                         video_file = potential
@@ -1576,7 +1564,7 @@ class DownloadManager:
                         "channel_url": channel_url,
                         "failed_at": time(),
                         "retry_count": self._failed_videos.get(video_id, {}).get("retry_count", 0),
-                        "reason": "no_video_file"
+                        "reason": "no_video_file",
                     }
                     self._save_failed_videos()
                     logger.info(f"🔄 Tracked failed video for retry: {title} [{video_id}]")
@@ -1584,7 +1572,7 @@ class DownloadManager:
                     continue
 
                 # Find thumbnail
-                thumbnail = base.with_suffix('.jpg')
+                thumbnail = base.with_suffix(".jpg")
 
                 # Sanitize names (strip redundant prefixes first)
                 sanitized_channel = sanitize_name(uploader)
@@ -1595,6 +1583,7 @@ class DownloadManager:
                 # Season = last 2 digits of year (2026 -> 26)
                 # Episode = day of year (Jan 23 = 023)
                 from datetime import datetime
+
                 upload_dt = datetime.strptime(upload_date, "%Y%m%d")
                 season_num = int(upload_dt.strftime("%y"))  # Last 2 digits of year
                 episode_num = upload_dt.timetuple().tm_yday  # Day of year (1-366)
@@ -1619,16 +1608,19 @@ class DownloadManager:
                 # Move video
                 if not final_video_file.exists():
                     import shutil
+
                     shutil.move(str(video_file), str(final_video_file))
 
                 # Move info.json
                 if not final_info_file.exists():
                     import shutil
+
                     shutil.move(str(info_file), str(final_info_file))
 
                 # Move thumbnail
                 if thumbnail.exists() and not final_thumbnail.exists():
                     import shutil
+
                     shutil.move(str(thumbnail), str(final_thumbnail))
 
                 # Letterbox thumbnail to 2:3 Plex poster format (adds black bars)
@@ -1637,6 +1629,7 @@ class DownloadManager:
 
                 # Set file permissions to 644 (rw-r--r--) so Plex can read them
                 import os
+
                 try:
                     os.chmod(final_video_file, 0o644)
                     if final_info_file.exists():
@@ -1650,8 +1643,8 @@ class DownloadManager:
                 # Set file modification time to match upload_date for Plex
                 # Plex uses file mtime for release date, not embedded metadata tags
                 try:
-                    from datetime import datetime
                     import os
+                    from datetime import datetime
 
                     # Parse upload_date (format: YYYYMMDD)
                     upload_datetime = datetime.strptime(upload_date, "%Y%m%d")
@@ -1682,6 +1675,7 @@ class DownloadManager:
             except Exception as e:
                 logger.error(f"Error moving {info_file}: {e}")
                 import traceback
+
                 logger.error(traceback.format_exc())
 
         return moved_videos
@@ -1732,7 +1726,7 @@ class DownloadManager:
         logger.debug(f"🔍 Scanning directory: {self.settings.download_dir}")
 
         if not self.database:
-            logger.warning(f"🔍 Database not available, returning early")
+            logger.warning("🔍 Database not available, returning early")
             return
 
         # Find all .info.json files in download directory
@@ -1824,10 +1818,7 @@ class DownloadManager:
             base_name = jpg_file.stem  # filename without .jpg
             video_dir = jpg_file.parent
             video_extensions = [".mp4", ".mkv", ".webm"]
-            has_video = any(
-                (video_dir / f"{base_name}{ext}").exists()
-                for ext in video_extensions
-            )
+            has_video = any((video_dir / f"{base_name}{ext}").exists() for ext in video_extensions)
 
             if has_video:
                 new_name = video_dir / f"{base_name}-poster.jpg"
@@ -1837,7 +1828,7 @@ class DownloadManager:
 
         logger.info(f"🖼️  _RENAME_THUMBNAILS_FOR_PLEX: Renamed {renamed_count} thumbnails")
 
-    def _find_video_file(self, info_file: Path) -> Optional[Path]:
+    def _find_video_file(self, info_file: Path) -> Path | None:
         """Find the video file corresponding to an info.json file.
 
         Args:
@@ -1883,20 +1874,14 @@ class DownloadManager:
             if keep_count is None:
                 keep_count = self.settings.videos_per_channel
 
-            videos_to_delete = self.database.get_videos_to_cleanup(
-                channel_name, keep_count
-            )
+            videos_to_delete = self.database.get_videos_to_cleanup(channel_name, keep_count)
 
             for video in videos_to_delete:
-                logger.info(
-                    f"Cleaning up old video: {video.title} from {channel_name}"
-                )
+                logger.info(f"Cleaning up old video: {video.title} from {channel_name}")
                 self.database.delete_video(video.video_id, delete_file=True)
 
             if videos_to_delete:
-                logger.info(
-                    f"Cleaned up {len(videos_to_delete)} old videos from {channel_name} (limit: {keep_count})"
-                )
+                logger.info(f"Cleaned up {len(videos_to_delete)} old videos from {channel_name} (limit: {keep_count})")
 
     def download_all_channels(self) -> list[str]:
         """Download from all configured channels.
@@ -1997,10 +1982,7 @@ class DownloadManager:
                             file.unlink()
                             counts["videos"] += 1
                             logger.info(f"Removed old video file: {file.name}")
-                        elif file.name.endswith("-poster.jpg"):
-                            file.unlink()
-                            counts["posters"] += 1
-                        elif file.suffix == ".jpg":
+                        elif file.name.endswith("-poster.jpg") or file.suffix == ".jpg":
                             file.unlink()
                             counts["posters"] += 1
                         elif file.suffix == ".json":

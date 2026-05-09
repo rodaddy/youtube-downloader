@@ -8,7 +8,6 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 
@@ -26,7 +25,7 @@ class Video:
     file_path: str
     file_size: int
     downloaded_at: datetime
-    info_json_path: Optional[str] = None
+    info_json_path: str | None = None
     keep_forever: bool = False
 
     @property
@@ -107,7 +106,7 @@ class Database:
         upload_date: str,
         file_path: str,
         file_size: int = 0,
-        info_json_path: Optional[str] = None,
+        info_json_path: str | None = None,
     ) -> int:
         """Add a video to the database.
 
@@ -174,12 +173,10 @@ class Database:
             List of all Video objects
         """
         with self._get_connection() as conn:
-            rows = conn.execute(
-                "SELECT * FROM videos ORDER BY downloaded_at DESC"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM videos ORDER BY downloaded_at DESC").fetchall()
             return [self._row_to_video(row) for row in rows]
 
-    def get_video_by_id(self, video_id: str) -> Optional[Video]:
+    def get_video_by_id(self, video_id: str) -> Video | None:
         """Get a video by its YouTube video ID.
 
         Args:
@@ -189,9 +186,7 @@ class Database:
             Video object or None if not found
         """
         with self._get_connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM videos WHERE video_id = ?", (video_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM videos WHERE video_id = ?", (video_id,)).fetchone()
             return self._row_to_video(row) if row else None
 
     def delete_video(self, video_id: str, delete_file: bool = True) -> bool:
@@ -252,9 +247,7 @@ class Database:
             List of channel names
         """
         with self._get_connection() as conn:
-            rows = conn.execute(
-                "SELECT DISTINCT channel_name FROM videos ORDER BY channel_name"
-            ).fetchall()
+            rows = conn.execute("SELECT DISTINCT channel_name FROM videos ORDER BY channel_name").fetchall()
             return [row["channel_name"] for row in rows]
 
     def get_videos_to_cleanup(self, channel_name: str, keep_count: int) -> list[Video]:
@@ -300,7 +293,7 @@ class Database:
 
         return success
 
-    def get_channel_limit(self, channel_url: str) -> Optional[int]:
+    def get_channel_limit(self, channel_url: str) -> int | None:
         """Get the per-channel video limit.
 
         Args:
@@ -369,9 +362,7 @@ class Database:
             file_path=row["file_path"],
             file_size=row["file_size"] or 0,
             info_json_path=row["info_json_path"],
-            downloaded_at=datetime.fromisoformat(row["downloaded_at"])
-            if row["downloaded_at"]
-            else datetime.now(),
+            downloaded_at=datetime.fromisoformat(row["downloaded_at"]) if row["downloaded_at"] else datetime.now(),
             keep_forever=keep_forever,
         )
 
@@ -383,12 +374,8 @@ class Database:
         """
         with self._get_connection() as conn:
             total = conn.execute("SELECT COUNT(*) FROM videos").fetchone()[0]
-            total_size = (
-                conn.execute("SELECT SUM(file_size) FROM videos").fetchone()[0] or 0
-            )
-            channels = conn.execute(
-                "SELECT COUNT(DISTINCT channel_name) FROM videos"
-            ).fetchone()[0]
+            total_size = conn.execute("SELECT SUM(file_size) FROM videos").fetchone()[0] or 0
+            channels = conn.execute("SELECT COUNT(DISTINCT channel_name) FROM videos").fetchone()[0]
 
         return {
             "total_videos": total,
@@ -409,9 +396,7 @@ class Database:
         for video in videos:
             if not video.file_exists:
                 with self._get_connection() as conn:
-                    conn.execute(
-                        "DELETE FROM videos WHERE video_id = ?", (video.video_id,)
-                    )
+                    conn.execute("DELETE FROM videos WHERE video_id = ?", (video.video_id,))
                     conn.commit()
                 logger.info(f"Removed orphan entry: {video.title}")
                 removed += 1

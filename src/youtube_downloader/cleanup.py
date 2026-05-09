@@ -45,9 +45,7 @@ class CleanupManager:
 
         # Get all unique channels
         with self.database._get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT DISTINCT channel_url, channel_name FROM videos ORDER BY channel_name"
-            )
+            cursor = conn.execute("SELECT DISTINCT channel_url, channel_name FROM videos ORDER BY channel_name")
             channels = cursor.fetchall()
 
         for channel in channels:
@@ -74,9 +72,7 @@ class CleanupManager:
             for video in videos_to_delete:
                 # Skip pinned videos
                 if video["keep_forever"]:
-                    logger.info(
-                        f"[{channel_name}] Skipping pinned video: {video['title']}"
-                    )
+                    logger.info(f"[{channel_name}] Skipping pinned video: {video['title']}")
                     continue
 
                 file_path = Path(video["file_path"])
@@ -103,18 +99,11 @@ class CleanupManager:
                 else:
                     # Actually delete
                     try:
-                        self.database.delete_video(
-                            video["video_id"], delete_file=True
-                        )
+                        self.database.delete_video(video["video_id"], delete_file=True)
                         stats.videos_deleted += 1
-                        logger.info(
-                            f"[{channel_name}] Deleted old video: {video['title']} "
-                            f"({size_mb:.2f} MB)"
-                        )
+                        logger.info(f"[{channel_name}] Deleted old video: {video['title']} ({size_mb:.2f} MB)")
                     except Exception as e:
-                        logger.error(
-                            f"[{channel_name}] Failed to delete {video['title']}: {e}"
-                        )
+                        logger.error(f"[{channel_name}] Failed to delete {video['title']}: {e}")
 
             stats.channels_processed += 1
 
