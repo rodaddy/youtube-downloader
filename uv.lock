@@ -807,7 +807,6 @@ dependencies = [
     { name = "loguru" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "python-dotenv" },
     { name = "requests" },
 ]
 
@@ -835,7 +834,6 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.14" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0" },
-    { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "requests", specifier = ">=2.33" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15" },
 ]
