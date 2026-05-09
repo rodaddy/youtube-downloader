@@ -3,6 +3,8 @@
 This module provides a Click-based CLI for running the server and managing downloads.
 """
 
+import os
+import signal
 import sys
 from pathlib import Path
 
@@ -14,6 +16,75 @@ from .config import Settings
 from .database import Database
 from .downloader import DownloadManager
 from .logger import setup_logger
+
+
+def _pid_file_path() -> Path:
+    """Get the path to the PID file."""
+    settings = Settings.load_with_overrides()
+    data_dir = settings.project_root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / "youtube-downloader.pid"
+
+
+def _write_pid() -> None:
+    """Write the current process PID to the PID file."""
+    pid_path = _pid_file_path()
+    pid_path.write_text(str(os.getpid()))
+
+
+def _cleanup_old_process() -> None:
+    """Stop any previously running instance using the PID file.
+
+    Only kills the specific process recorded in the PID file, avoiding
+    the dangerous `pkill -9 -f` pattern that can nuke unrelated processes.
+    """
+    pid_path = _pid_file_path()
+
+    if not pid_path.exists():
+        return
+
+    try:
+        old_pid = int(pid_path.read_text().strip())
+    except (ValueError, OSError):
+        # Corrupt PID file -- just remove it
+        pid_path.unlink(missing_ok=True)
+        return
+
+    # Check if the process is still running
+    try:
+        os.kill(old_pid, 0)  # Signal 0 = existence check
+    except ProcessLookupError:
+        # Process already gone -- clean up stale PID file
+        pid_path.unlink(missing_ok=True)
+        return
+    except PermissionError:
+        # Process exists but we can't signal it
+        click.echo(f"⚠️  Process {old_pid} exists but can't be signaled (permission denied)")
+        pid_path.unlink(missing_ok=True)
+        return
+
+    # Process is alive -- send SIGTERM (graceful) first, then SIGKILL if needed
+    click.echo(f"🔄 Stopping previous instance (PID {old_pid})...")
+    try:
+        os.kill(old_pid, signal.SIGTERM)
+        # Give it a moment to shut down
+        import time
+
+        for _ in range(10):
+            time.sleep(0.5)
+            try:
+                os.kill(old_pid, 0)
+            except ProcessLookupError:
+                click.echo(f"✅ Previous instance stopped gracefully")
+                break
+        else:
+            # Still alive after 5 seconds -- force kill
+            click.echo(f"⚠️  Force-killing previous instance (PID {old_pid})...")
+            os.kill(old_pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass  # Already gone
+
+    pid_path.unlink(missing_ok=True)
 
 
 @click.group()
@@ -42,14 +113,11 @@ def cli() -> None:
 )
 def serve(host: str | None, port: int | None, debug: bool | None) -> None:
     """Start the web server (default command)."""
-    # Kill any existing instances before starting (prevents zombie processes)
-    import subprocess
-    try:
-        subprocess.run(["pkill", "-9", "-f", "youtube_downloader.cli serve"], check=False)
-        subprocess.run(["pkill", "-9", "-f", "yt-dlp"], check=False)
-        print("✅ Cleaned up any existing processes")
-    except Exception as e:
-        print(f"⚠️  Cleanup warning (non-critical): {e}")
+    # Clean up any existing instance via PID file
+    _cleanup_old_process()
+
+    # Write our PID so future invocations can find us
+    _write_pid()
 
     settings = Settings.load_with_overrides()
 
@@ -63,7 +131,12 @@ def serve(host: str | None, port: int | None, debug: bool | None) -> None:
 
     # Create and run Flask app
     app = create_app(settings)
-    app.run(host=settings.host, port=settings.port, debug=settings.debug)
+    try:
+        app.run(host=settings.host, port=settings.port, debug=settings.debug)
+    finally:
+        # Clean up PID file on exit
+        pid_path = _pid_file_path()
+        pid_path.unlink(missing_ok=True)
 
 
 @cli.command()
