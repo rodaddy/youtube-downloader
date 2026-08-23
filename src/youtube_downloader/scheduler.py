@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Callable, Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from loguru import logger
 
@@ -30,8 +31,6 @@ class DownloadScheduler:
         self._is_running = False
         self._last_run: Optional[datetime] = None
         self._next_run: Optional[datetime] = None
-        self._last_cleanup_run: Optional[datetime] = None
-        self._next_cleanup_run: Optional[datetime] = None
 
     def set_download_callback(self, callback: Callable[[], None]) -> None:
         """Set the callback function for scheduled downloads.
@@ -49,12 +48,10 @@ class DownloadScheduler:
         """
         self._cleanup_callback = callback
 
-    def start(self, interval_hours: float = 2.0, cleanup_interval_hours: float = 1.0) -> None:
-        """Start the scheduler with the specified interval.
+    def start(self) -> None:
+        """Start the scheduler to run on the hour, every hour.
 
-        Args:
-            interval_hours: Hours between download runs
-            cleanup_interval_hours: Hours between cleanup/structure enforcement runs
+        Runs downloads then cleanup sequentially in a single job.
         """
         if self._is_running:
             logger.warning("Scheduler already running")
@@ -64,46 +61,24 @@ class DownloadScheduler:
             logger.error("No download callback set - cannot start scheduler")
             return
 
-        # Add the download job
+        # Single job: downloads + cleanup, runs on the hour
         self.scheduler.add_job(
-            self._run_download,
-            trigger=IntervalTrigger(hours=interval_hours),
-            id="download_job",
-            name="Scheduled Download",
+            self._run_job,
+            trigger=CronTrigger(minute=0),  # Every hour at :00
+            id="hourly_job",
+            name="Hourly Download & Cleanup",
             replace_existing=True,
         )
-
-        # Add the cleanup job (runs more frequently)
-        if self._cleanup_callback:
-            self.scheduler.add_job(
-                self._run_cleanup,
-                trigger=IntervalTrigger(hours=cleanup_interval_hours),
-                id="cleanup_job",
-                name="Directory Cleanup",
-                replace_existing=True,
-            )
 
         self.scheduler.start()
         self._is_running = True
 
-        # Get next run times
-        job = self.scheduler.get_job("download_job")
+        # Get next run time
+        job = self.scheduler.get_job("hourly_job")
         if job and job.next_run_time:
             self._next_run = job.next_run_time
 
-        cleanup_job = self.scheduler.get_job("cleanup_job")
-        if cleanup_job and cleanup_job.next_run_time:
-            self._next_cleanup_run = cleanup_job.next_run_time
-
-        logger.info(
-            f"Scheduler started - downloads every {interval_hours} hours. "
-            f"Next run: {self._next_run}"
-        )
-        if self._cleanup_callback:
-            logger.info(
-                f"Cleanup job - runs every {cleanup_interval_hours} hours. "
-                f"Next run: {self._next_cleanup_run}"
-            )
+        logger.info(f"Scheduler started - runs on the hour (:00). Next run: {self._next_run}")
 
     def stop(self) -> None:
         """Stop the scheduler."""
@@ -113,46 +88,39 @@ class DownloadScheduler:
             logger.info("Scheduler stopped")
 
     def run_now(self) -> None:
-        """Trigger an immediate download run."""
+        """Trigger an immediate download + cleanup run."""
         if self._download_callback:
-            logger.info("Manual download triggered")
-            self._run_download()
+            logger.info("Manual run triggered")
+            self._run_job()
         else:
             logger.error("No download callback set")
 
-    def _run_download(self) -> None:
-        """Execute the download callback and update run times."""
+    def _run_job(self) -> None:
+        """Execute downloads then cleanup sequentially."""
         self._last_run = datetime.now()
-        logger.info(f"Starting scheduled download at {self._last_run}")
+        logger.info(f"Starting hourly job at {self._last_run}")
 
+        # Step 1: Downloads
         try:
             if self._download_callback:
+                logger.info("Running downloads...")
                 self._download_callback()
         except Exception as e:
-            logger.exception(f"Scheduled download failed: {e}")
+            logger.exception(f"Download phase failed: {e}")
 
-        # Update next run time
-        job = self.scheduler.get_job("download_job")
-        if job and job.next_run_time:
-            self._next_run = job.next_run_time
-            logger.info(f"Next scheduled download: {self._next_run}")
-
-    def _run_cleanup(self) -> None:
-        """Execute the cleanup callback and update run times."""
-        self._last_cleanup_run = datetime.now()
-        logger.info(f"Starting scheduled cleanup at {self._last_cleanup_run}")
-
+        # Step 2: Cleanup (runs even if downloads failed)
         try:
             if self._cleanup_callback:
+                logger.info("Running cleanup...")
                 self._cleanup_callback()
         except Exception as e:
-            logger.exception(f"Scheduled cleanup failed: {e}")
+            logger.exception(f"Cleanup phase failed: {e}")
 
         # Update next run time
-        job = self.scheduler.get_job("cleanup_job")
+        job = self.scheduler.get_job("hourly_job")
         if job and job.next_run_time:
-            self._next_cleanup_run = job.next_run_time
-            logger.info(f"Next scheduled cleanup: {self._next_cleanup_run}")
+            self._next_run = job.next_run_time
+            logger.info(f"Hourly job complete. Next run: {self._next_run}")
 
     def get_status(self) -> dict:
         """Get scheduler status.
@@ -167,12 +135,9 @@ class DownloadScheduler:
             "interval_hours": self._get_interval_hours(),
         }
 
-    def _get_interval_hours(self) -> Optional[float]:
-        """Get the current interval in hours."""
-        job = self.scheduler.get_job("download_job")
-        if job and hasattr(job.trigger, "interval"):
-            return job.trigger.interval.total_seconds() / 3600
-        return None
+    def _get_interval_hours(self) -> float:
+        """Get the current interval in hours (always 1.0 for hourly schedule)."""
+        return 1.0
 
     @property
     def is_running(self) -> bool:

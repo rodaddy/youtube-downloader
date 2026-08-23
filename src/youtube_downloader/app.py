@@ -93,7 +93,7 @@ def create_app(settings: Settings | None = None) -> Flask:
         scheduler = DownloadScheduler(settings)
         scheduler.set_download_callback(download_manager.download_all_channels)
         scheduler.set_cleanup_callback(lambda: download_manager._enforce_directory_structure(None))
-        scheduler.start(interval_hours=2.0, cleanup_interval_hours=1.0)
+        scheduler.start()  # Runs on the hour - downloads then cleanup
 
         # Register cleanup on shutdown
         atexit.register(scheduler.stop)
